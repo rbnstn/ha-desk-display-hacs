@@ -371,3 +371,7 @@ Eigener Layouteditor für Kamera, Titel, Türstatus und zusätzliche Klingelakti
 ## Version 0.22.1: Klingel-Layout und Abschlusskorrekturen
 
 Validiertes Übernehmen des Klingel-Layouts, korrekte Rückmeldung bei Langdruck, gesperrte Positionseingaben und erhaltene Kamerabilder mit Altersstatus. Enthält alle Erweiterungen 0.17–0.22 und Firmware 0.7.0.
+
+## Version 0.22.2: Klingel-Layout, Offlinebild und Darstellungsfeinschliff
+
+Vollständige Erweiterungsserie 0.17–0.22: frei gestaltbares Klingel-Layout, erhaltene Kamerabilder mit Altersanzeige sowie korrigierte Mediensteuerung und helle Kartenfarben. Enthält alle Abschlusskorrekturen aus 0.22.1. Firmware 0.7.0 ergänzt Langdruck, Ziehen und lokale Berührungsanzeige.

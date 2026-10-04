@@ -50,9 +50,12 @@ def tile(widget,states,theme):
     font=ImageFont.load_default(size=min(widget['size'],24));small=ImageFont.load_default(size=12)
     raw=states.get('__raw__',{}).get(widget['entity_id'],('unavailable',''))
     value=number(raw[0]);kind=widget['kind'];muted='#49454f' if theme=='material_light' else '#cac4d0'
+    style=widget.get('style',{});surface=style.get('background','#f3edf7' if theme=='material_light' else '#211f26')
+    radius=min(style.get('radius',12),height//2,width//2)
+    if style.get('surface',False):draw.rounded_rectangle((0,0,width-1,height-1),radius=radius,fill=surface)
     if kind in ('slider','player'):
         attributes=states.get('__attributes__',{}).get(widget['entity_id'],{})
-        draw.rounded_rectangle((0,0,width-1,height-1),radius=min(12,height//2),fill='#211f26')
+        draw.rounded_rectangle((0,0,width-1,height-1),radius=radius,fill=surface)
         if kind=='player':
             cover=states.get('__covers__',{}).get(widget['entity_id'])
             left=4
@@ -61,7 +64,7 @@ def tile(widget,states,theme):
                 diameter=min(48,max(1,height-56),width//3);image.alpha_composite(picture_tile(cover,diameter,diameter,'cover'),(4,4));left=diameter+8
             draw.text((left,4),str(attributes.get('media_title',widget['text']))[:40],font=small,fill=color)
             draw.text((left,22),str(attributes.get('media_artist',''))[:40],font=small,fill=muted)
-            for i,label in enumerate(('⏮','Pause' if raw[0]=='playing' else 'Play','⏭')):draw.text((i*width//3+4,max(0,height-24)),label,font=small,fill=color)
+            for i,label in enumerate(('<<','Pause' if raw[0]=='playing' else 'Play','>>')):draw.text((i*width//3+4,max(0,height-24)),label,font=small,fill=color)
             fraction=number(attributes.get('volume_level'),0);top=max(0,height-46)
         else:
             domain=widget['entity_id'].split('.')[0]
@@ -107,14 +110,14 @@ def tile(widget,states,theme):
             if value is not None and abs(value)>.01:
                 draw.line((a,b),fill=color,width=2);dx=b[0]-a[0];dy=b[1]-a[1];length=max(1,math.hypot(dx,dy));ux,uy=dx/length,dy/length
                 tip=((a[0]+b[0])/2,(a[1]+b[1])/2);draw.polygon([tip,(tip[0]-ux*8-uy*4,tip[1]-uy*8+ux*4),(tip[0]-ux*8+uy*4,tip[1]-uy*8-ux*4)],fill=color)
-            draw.rounded_rectangle((point[0]-width*.2,point[1]-20,point[0]+width*.2,point[1]+20),radius=8,fill='#211f26')
+            draw.rounded_rectangle((point[0]-width*.2,point[1]-20,point[0]+width*.2,point[1]+20),radius=min(8,radius),fill=surface)
             text=labels[role]+'\n'+('—' if value is None else f'{abs(value):g} W')
             draw.multiline_text((point[0]-width*.18,point[1]-16),text,font=small,fill=color)
         return image
     if kind=='chip':
         active=raw[0]==config.get('active','on');text=config.get('on_text','Aktiv') if active else config.get('off_text','Inaktiv')
         if raw[0] in ('unknown','unavailable'):text='Nicht verfügbar'
-        draw.rounded_rectangle((0,0,width-1,height-1),radius=min(height//2,20),fill='#6750a4' if active else '#49454f')
+        draw.rounded_rectangle((0,0,width-1,height-1),radius=min(height//2,20),fill=style.get('background','#eaddff' if active and theme=='material_light' else '#6750a4' if active else '#cac4d0' if theme=='material_light' else '#49454f'))
         label=(widget['text']+' · '+text).strip(' ·')
         draw.text((8,max(0,(height-18)//2)),label[:45],fill=color,font=font)
         if widget.get('image'):
