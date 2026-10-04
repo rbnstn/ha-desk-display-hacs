@@ -123,12 +123,72 @@ export class DeskDisplayPanel extends HTMLElement {
     this.doorbell.door_state_entity_id ??= '';
     this.overlayPreview = false;
     this.savedSnapshot=this.editState();
+    this.history=[this.savedSnapshot];this.historyIndex=0;
+    this.selection=new Set([0]);
+  }
+  recordEdit() {
+    const state=this.editState();
+    if (!this.history || state===this.history[this.historyIndex]) return;
+    this.history.splice(this.historyIndex+1);this.history.push(state);
+    if (this.history.length>40) this.history.shift();
+    this.historyIndex=this.history.length-1;
+  }
+  undoEdit(direction=-1) {
+    this.recordEdit();
+    const target=this.historyIndex+direction;
+    if (target<0 || target>=this.history.length) return;
+    this.historyIndex=target;
+    const state=JSON.parse(this.history[target]);
+    this.layout=state.layout;this.doorbell=state.doorbell;
+    this.widgetIndex=Math.min(this.widgetIndex,Math.max(0,this.layout.widgets.length-1));
+    this.selection=new Set([this.widgetIndex]);this.draw();this.preview();
+  }
+  selectedWidgets() {
+    const indices=this.selection?.has(this.widgetIndex) ? this.selection : new Set([this.widgetIndex]);
+    return this.layout.widgets.filter((w,i)=>indices.has(i));
+  }
+  moveSelection(dx,dy) {
+    const widgets=this.selectedWidgets();if (!widgets.length) return;
+    dx=Math.max(-Math.min(...widgets.map(w=>w.x)),Math.min(dx,480-Math.max(...widgets.map(w=>w.x+w.width))));
+    dy=Math.max(-Math.min(...widgets.map(w=>w.y)),Math.min(dy,320-Math.max(...widgets.map(w=>w.y+w.height))));
+    for (const w of widgets) {w.x+=dx;w.y+=dy;}
+  }
+  snapPosition(widget,x,y) {
+    if (!this.snapEnabled) return [x,y];
+    const selected=this.selectedWidgets(),others=this.layout.widgets.filter(w=>!selected.includes(w));
+    const snap=(value,size,bound,axis)=>{
+      const lines=[0,bound/2,bound,...others.flatMap(w=>[w[axis],w[axis]+w[axis==='x'?'width':'height']/2,w[axis]+w[axis==='x'?'width':'height']])];
+      const offsets=[0,size/2,size];let best=Math.round(value/8)*8,distance=Math.abs(best-value);
+      for (const line of lines) for (const offset of offsets) if (Math.abs(line-offset-value)<distance) {best=line-offset;distance=Math.abs(best-value);}
+      return Math.max(0,Math.min(bound-size,distance<=4?Math.round(best):value));
+    };
+    return [snap(x,widget.width,480,'x'),snap(y,widget.height,320,'y')];
+  }
+  groupSelection(remove=false) {
+    const widgets=this.selectedWidgets();
+    const group='g'+Date.now().toString(36);
+    for (const w of widgets) {if(remove) delete w.group;else w.group=group;}
+    this.recordEdit();this.draw();this.schedulePreview();
+  }
+  arrangeSelection(axis,distribute=false) {
+    const widgets=this.selectedWidgets().sort((a,b)=>a[axis]-b[axis]);
+    if(widgets.length<2)return;
+    const size=axis==='x'?'width':'height';
+    if(distribute && widgets.length>2) {
+      const first=widgets[0][axis],last=widgets.at(-1)[axis]+widgets.at(-1)[size];
+      const gap=(last-first-widgets.reduce((sum,w)=>sum+w[size],0))/(widgets.length-1);
+      let cursor=first;for(const w of widgets){w[axis]=Math.round(cursor);cursor+=w[size]+gap;}
+    } else {for(const w of widgets)w[axis]=widgets[0][axis];}
+    this.recordEdit();this.draw();this.schedulePreview();
   }
   editState(layout=this.layout,doorbell=this.doorbell) {
     return JSON.stringify({layout,doorbell},(key,value)=>
       ['style','value'].includes(key) && value && Object.keys(value).length===0 ? undefined : value);
   }
   updateSaveState() {
+    for(const [label,disabled] of [['Rückgängig',!this.historyIndex],['Wiederholen',this.historyIndex>=((this.history?.length??1)-1)]]) {
+      const button=this.shadowRoot?.querySelector?.(`button[aria-label="${label}"]`);if(button)button.disabled=disabled||this.overlayPreview;
+    }
     const target=this.shadowRoot?.querySelector?.('#save-state');
     if (target) {
       const dirty=this.editState()!==this.savedSnapshot;
@@ -165,17 +225,22 @@ export class DeskDisplayPanel extends HTMLElement {
     const scroll=this.shadowRoot.querySelector('.inspector-scroll');
     if (scroll) scroll.scrollTop=0;
   }
-  selectWidget(index) {
+  selectWidget(index,multiple=false) {
     if (!this.layout.widgets[index]) return;
+    if (!multiple) this.selection=new Set();
+    const group=this.layout.widgets[index].group;
+    const members=this.layout.widgets.map((w,i)=>i).filter(i=>i===index || (group && this.layout.widgets[i].group===group));
+    const remove=multiple && this.selection.has(index);
+    for(const i of members){if(remove)this.selection.delete(i);else this.selection.add(i);}
     this.widgetIndex=index;this.inspectorTab='element';this.draw();
   }
   nudgeSelected(dx,dy,step=1) {
     const widget=this.layout.widgets[this.widgetIndex];
     if (this.overlayPreview || !widget) return;
-    widget.x=Math.max(0,Math.min(480-widget.width,widget.x+dx*step));
-    widget.y=Math.max(0,Math.min(320-widget.height,widget.y+dy*step));
+    this.moveSelection(dx*step,dy*step);
   }
   status(message) {
+    this.recordEdit();
     this.shadowRoot.querySelector('#status').textContent = message;
     this.updateSaveState();
   }
@@ -189,8 +254,9 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   removeSelected() {
     if (!this.layout.widgets[this.widgetIndex]) return;
-    this.layout.widgets.splice(this.widgetIndex, 1);
+    const selected=this.selectedWidgets();this.layout.widgets=this.layout.widgets.filter(w=>!selected.includes(w));
     this.widgetIndex = Math.max(0, Math.min(this.widgetIndex, this.layout.widgets.length - 1));
+    this.selection=new Set([this.widgetIndex]);
     this.draw();
     this.preview();
   }
@@ -280,6 +346,7 @@ export class DeskDisplayPanel extends HTMLElement {
     finally { this.saving=false;this.updateSaveState(); }
   }
   draw() {
+    this.recordEdit();
     this.previewResize?.disconnect();
     this.shadowRoot.replaceChildren();
     this.shadowRoot.append(this.element('style', {}, `
@@ -398,7 +465,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const elementStrip=this.element('div',{class:'element-strip','aria-label':'Elemente'});
     this.layout.widgets.forEach((widget,index)=>{
       const choose=this.element('button',{'aria-pressed':String(index===this.widgetIndex),'data-index':index},`${index+1}. ${this.widgetLabel(widget)}`);
-      choose.disabled=this.overlayPreview;choose.onclick=()=>this.selectWidget(index);elementStrip.append(choose);
+      choose.disabled=this.overlayPreview;choose.onclick=event=>this.selectWidget(index,event.ctrlKey||event.metaKey);elementStrip.append(choose);
     });
     canvasSection.append(elementStrip);
     canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
@@ -417,6 +484,16 @@ export class DeskDisplayPanel extends HTMLElement {
     remove.disabled = this.overlayPreview || !this.layout.widgets.length;
     remove.onclick = () => this.removeSelected();
     const toolbar=this.element('div',{class:'toolbar'});
+    for(const [text,direction] of [['↶',-1],['↷',1]]) {
+      const button=this.element('button',{class:'secondary','aria-label':direction<0?'Rückgängig':'Wiederholen'},text);
+      button.disabled=this.overlayPreview || (direction<0?this.historyIndex===0:this.historyIndex>=this.history.length-1);
+      button.onclick=()=>this.undoEdit(direction);toolbar.append(button);
+    }
+    main.onkeydown=event=>{
+      if(!(event.ctrlKey||event.metaKey) || !['z','y'].includes(event.key.toLowerCase()))return;
+      if(['INPUT','TEXTAREA'].includes(event.target.tagName))return;
+      event.preventDefault();this.undoEdit(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);
+    };
     toolbar.append(add,remove,this.element('span',{id:'save-state',class:'save-state',role:'status'}),save);
     canvasSection.append(toolbar, this.element('div', {id:'status',role:'status'}));
     if (!this.devices[this.selected].touch) canvasSection.append(this.element('small', {},
@@ -458,6 +535,13 @@ export class DeskDisplayPanel extends HTMLElement {
       const forward=this.element('button',{class:'secondary'},'Eine Ebene nach vorn');
       forward.disabled=this.widgetIndex===this.layout.widgets.length-1;forward.onclick=()=>this.moveSelectedLayer(1);
       settings.append(duplicate,backward,forward);
+      const snap=this.element('input',{type:'checkbox'});snap.checked=!!this.snapEnabled;
+      snap.onchange=()=>{this.snapEnabled=snap.checked;};
+      const snapLabel=this.element('label');snapLabel.append(snap,document.createTextNode('8-Pixel-Raster und Kanten einrasten'));settings.append(snapLabel);
+      settings.append(this.element('small',{},'Strg/Klick wählt mehrere Elemente. Gruppen werden gemeinsam verschoben.'));
+      for(const [label,action] of [['Gruppieren',()=>this.groupSelection()],['Gruppe auflösen',()=>this.groupSelection(true)],['Links gemeinsam ausrichten',()=>this.arrangeSelection('x')],['Oben gemeinsam ausrichten',()=>this.arrangeSelection('y')],['Horizontal verteilen',()=>this.arrangeSelection('x',true)],['Vertikal verteilen',()=>this.arrangeSelection('y',true)]]) {
+        const button=this.element('button',{class:'secondary'},label);button.onclick=action;settings.append(button);
+      }
       const alignment=this.element('select',{'aria-label':'Am Display ausrichten'});
       alignment.append(this.element('option',{value:''},'Am Display ausrichten …'));
       for (const [value,label] of [['left','Links'],['center','Horizontal mittig'],['right','Rechts'],['top','Oben'],['middle','Vertikal mittig'],['bottom','Unten']])
@@ -625,7 +709,7 @@ export class DeskDisplayPanel extends HTMLElement {
     stage.querySelectorAll('.hit').forEach(element=>element.remove());
     if (this.overlayPreview) return;
     this.layout.widgets.forEach((widget,index)=>{
-      const hit = this.element('button',{class:`hit ${index===this.widgetIndex?'active':''}`,'aria-label':`Element ${index+1}: ${widget.text}`});
+      const hit = this.element('button',{class:`hit ${this.selection?.has(index)?'active':''}`,'aria-label':`Element ${index+1}: ${widget.text}`});
       const position = () => Object.assign(hit.style,{left:`${widget.x/4.8}%`,top:`${widget.y/3.2}%`,width:`${widget.width/4.8}%`,height:`${widget.height/3.2}%`});
       position();
       hit.onkeydown=event=>{
@@ -639,14 +723,16 @@ export class DeskDisplayPanel extends HTMLElement {
         this.schedulePreview();
       };
       hit.onpointerdown = event => {
+        if(event.ctrlKey||event.metaKey){this.selectWidget(index,true);return;}
         if (index!==this.widgetIndex) {this.selectWidget(index);return;}
         event.preventDefault();hit.setPointerCapture(event.pointerId);
         const rect = stage.getBoundingClientRect();
         const start = {x:event.clientX,y:event.clientY,wx:widget.x,wy:widget.y};
         hit.onpointermove = move => {
-          widget.x=Math.max(0,Math.min(480-widget.width,Math.round(start.wx+(move.clientX-start.x)*480/rect.width)));
-          widget.y=Math.max(0,Math.min(320-widget.height,Math.round(start.wy+(move.clientY-start.y)*320/rect.height)));
+          const [x,y]=this.snapPosition(widget,Math.round(start.wx+(move.clientX-start.x)*480/rect.width),Math.round(start.wy+(move.clientY-start.y)*320/rect.height));
+          this.moveSelection(x-widget.x,y-widget.y);
           position();
+          for(const [i,w] of this.layout.widgets.entries()) {const target=stage.querySelectorAll('.hit')[i];if(target){target.style.left=`${w.x/4.8}%`;target.style.top=`${w.y/3.2}%`;}}
           this.shadowRoot.querySelector('[data-field=x]').value=widget.x;
           this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
         };
@@ -675,6 +761,7 @@ export class DeskDisplayPanel extends HTMLElement {
     });
   }
   schedulePreview(quiet = false) {
+    if(!quiet)this.recordEdit();
     this.updateSaveState();
     // State changes must not postpone a pending user edit or overwrite save feedback.
     if (quiet && this.previewTimer) return;
