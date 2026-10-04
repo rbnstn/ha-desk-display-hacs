@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.6.1**, Home Assistant **2026.9 oder neuer**.
+Version **0.6.2**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -36,7 +36,7 @@ ausgelöst. Die Editor-Vorschau ist ausschließlich zum Gestalten.
 Der MVP unterstützt eine normale Seite pro Display und ein optionales Klingel-
 Overlay. Pro Ansicht läuft ein Videofeld.
 
-## Optionales Klingel-Overlay ab 0.6.1
+## Optionales Klingel-Overlay ab 0.6.2
 
 Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen:
 

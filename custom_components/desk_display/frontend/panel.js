@@ -7,8 +7,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.selected = 0;
     this.widgetIndex = 0;
     this.previewSequence = 0;
-    this.doorbell.preload ??= false;
-    this.overlayPreview = false;
+    this.loadDoorbell();
   }
   set hass(value) {
     const previous = this._hass;
