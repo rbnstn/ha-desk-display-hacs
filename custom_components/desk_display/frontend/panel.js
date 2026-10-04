@@ -52,7 +52,32 @@ export class DeskDisplayPanel extends HTMLElement {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
       if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => w.kind === 'media')) && !this.previewTimer) this.preview(true);
+      if (this.isConnected) this.refreshDoorbellStatus();
     }, 1000);
+  }
+  async refreshDoorbellStatus() {
+    const target=this.shadowRoot.querySelector('#doorbell-ready');
+    const device=this.devices[this.selected];
+    if (!target || !device || this.doorbellStatusBusy) return;
+    if (!this.doorbell.enabled || !this.doorbell.preload) {
+      target.textContent='Kameravorbereitung ausgeschaltet. Beim Klingeln muss der Stream erst starten.';
+      return;
+    }
+    const saved=device.doorbell;
+    if (!saved?.enabled || !saved.preload || saved.camera!==this.doorbell.camera) {
+      target.textContent='Zum Vorbereiten der ausgewählten Kamera speichern.';
+      return;
+    }
+    this.doorbellStatusBusy=true;
+    try {
+      const result=await this._hass.callWS({type:'desk_display/doorbell_status',entry_id:device.id});
+      if (target!==this.shadowRoot.querySelector('#doorbell-ready')) return;
+      target.textContent=result.state==='ready' ?
+        `Kamera bereit · ${result.mode==='snapshot'?'HA-Kamerabild; Stream startet oder stockt':'Stream'} · vor ${result.age} s empfangen.` :
+        result.state==='disabled' ? 'Vorbereitung noch nicht aktiv. Speichern und Verbindung prüfen.' :
+        result.message || 'Kamera wird vorbereitet; noch kein aktuelles Bild vorhanden.';
+    } catch(error) {target.textContent=`Kamerabereitschaft konnte nicht geprüft werden: ${error.message ?? error}`;}
+    finally {this.doorbellStatusBusy=false;}
   }
   async browseMedia(parent, widget, id = null, history = []) {
     let browser = parent.querySelector('.media-browser');
@@ -177,6 +202,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const preloadLabel=this.element('label');
     preloadLabel.append(preload,document.createTextNode('Overlay-Kamera vorbereiten'));
     bellSettings.append(preloadLabel,this.element('small',{},'Hält auf dem HA-Rechner ein aktuelles Kamerabild bereit, damit es beim Klingeln schneller erscheint. Zusätzliche Kamera-Verbindung und HA-Rechenlast; das Display bleibt bei höchstens 1 FPS. Nach dem Speichern kurz auf den Kamerastart warten.'));
+    bellSettings.append(this.element('small',{id:'doorbell-ready',role:'status'},'Kamerabereitschaft wird geprüft …'));
     this.field(bellSettings,'Automatisch schließen nach (Sekunden)',this.doorbell.duration,
       value=>this.doorbell.duration=Number(value),{type:'number',min:5,max:300,step:1});
     const overlayPreview=this.element('button',{class:'secondary'},this.overlayPreview?'Normale Vorschau':'Overlay-Vorschau');

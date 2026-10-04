@@ -14,7 +14,7 @@ from .doorbell import get_doorbell, validate_doorbell, overlay_layout
 
 @callback
 def register_commands(hass):
-    for handler in (list_displays, preview, save, media_browse, doorbell_test):
+    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -112,6 +112,18 @@ async def doorbell_test(hass,connection,msg):
         coordinator.stop_doorbell()
     await coordinator.async_refresh()
     connection.send_result(msg['id'],{'active':coordinator.doorbell_active,'sent':coordinator.last_update_success})
+
+
+@websocket_api.websocket_command({'type':'desk_display/doorbell_status',vol.Required('entry_id'):str})
+@websocket_api.require_admin
+@callback
+def doorbell_status(hass,connection,msg):
+    coordinator=hass.data.get(DOMAIN,{}).get(msg['entry_id'])
+    if coordinator is None:
+        connection.send_error(msg['id'],'not_found','Display nicht gefunden')
+        return
+    worker=getattr(getattr(coordinator,'media',None),'preloader',None)
+    connection.send_result(msg['id'],worker.readiness() if worker else {'state':'disabled'})
 
 
 @websocket_api.websocket_command({"type": "desk_display/media_browse",

@@ -5,7 +5,7 @@ import logging
 from time import monotonic
 from contextlib import suppress
 
-from homeassistant.components.camera import async_get_stream_source
+from homeassistant.components.camera import async_get_stream_source, async_get_image
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.components.media_source import async_resolve_media
 from homeassistant.components.media_player.browse_media import async_process_play_media_url
@@ -15,6 +15,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from .models import get_layout, validate_media_source
 from .video import VideoDecoder, VideoError
 from .doorbell import current_layout, video_widget, get_doorbell, overlay_layout
+from .poster import camera_tile
 
 LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +66,10 @@ class MediaWorker:
         self.preloader = None
         self._frames = {}
         self.updated_at = None
+        self.snapshot_task = None
+        self.snapshot = None
+        self.snapshot_at = None
+        self.last_upload_at = 0
         self.status = "idle"
         self.error_code = None
 
@@ -72,13 +77,58 @@ class MediaWorker:
     def frames(self):
         if self.owner is not None:
             # Never use an old standby image as the first doorbell frame.
-            return self._frames if self.updated_at is not None and monotonic()-self.updated_at <= 2.5 else {}
+            if self._frames and self.updated_at is not None and monotonic()-self.updated_at <= 2.5:
+                return self._frames
+            if self.signature and self.snapshot is not None and monotonic()-self.snapshot_at <= 5:
+                return {self.signature[:3]:self.snapshot}
+            return {}
         if self.preloader is None:
             return self._frames
         return {**self._frames, **self.preloader.frames}
 
     def visible(self, signature):
         return self.owner is None or self.owner.signature == signature
+
+    def readiness(self):
+        if not self.signature:
+            return {'state':'disabled'}
+        if self.frames:
+            stream = self.updated_at is not None and monotonic()-self.updated_at <= 2.5
+            age = monotonic()-(self.updated_at if stream else self.snapshot_at)
+            return {'state':'ready','mode':'stream' if stream else 'snapshot','age':round(age,1)}
+        return {'state':'unavailable' if self.status=='unavailable' else 'connecting',
+                'message':MESSAGES.get(self.error_code,'Noch kein aktuelles Kamerabild vorhanden.')}
+
+    async def publish(self, signature, fast):
+        if not self.visible(signature) or monotonic()-self.last_upload_at < 1:
+            return
+        self.last_upload_at = monotonic()
+        if fast:
+            await self.coordinator.async_video_frame(signature)
+        else:
+            await self.coordinator._poll_touch()
+            await self.coordinator.async_refresh()
+
+    async def prepare_snapshot(self, signature):
+        """Keep a fresh HA still image while the stream starts or stops producing frames."""
+        source,width,height=signature[:3]
+        while self.signature==signature:
+            try:
+                if self.updated_at is None or monotonic()-self.updated_at > 2.5:
+                    async with asyncio.timeout(4):
+                        image=await async_get_image(self.hass,source,timeout=4,width=width,height=height)
+                    tile=await self.hass.async_add_executor_job(camera_tile,image.content,width,height)
+                    if self.signature!=signature:
+                        return
+                    self.snapshot=tile
+                    self.snapshot_at=monotonic()
+                    await self.publish(signature,bool((self.coordinator.data or {}).get('jpeg_regions')))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Camera responses and exception strings can include secrets.
+                pass
+            await asyncio.sleep(2)
 
     @property
     def status(self):
@@ -118,6 +168,12 @@ class MediaWorker:
         self.signature = None
         self._frames.clear()
         self.updated_at = None
+        self.snapshot = None
+        self.snapshot_at = None
+        self.last_upload_at = 0
+        if self.snapshot_task:
+            self.snapshot_task.cancel()
+        self.snapshot_task = None
         self.status = "idle"
         self.error_code = None
         if self.task:
@@ -156,6 +212,9 @@ class MediaWorker:
         if signature and start:
             self.task = self.coordinator.entry.async_create_background_task(
                 self.hass, self.run(signature), "Desk Display video")
+            if self.owner is not None and signature[0].startswith('camera.'):
+                self.snapshot_task = self.coordinator.entry.async_create_background_task(
+                    self.hass,self.prepare_snapshot(signature),'Desk Display camera preparation')
 
     async def run(self, signature):
         """Drain the source continuously; drop old frames when the display is slower."""
@@ -184,13 +243,7 @@ class MediaWorker:
                         self.status = "live"
                         self.error_code = None
                         # Drain a pending touch before a firmware frame clears its event.
-                        if not self.visible(signature):
-                            pass
-                        elif fast:
-                            await self.coordinator.async_video_frame(signature)
-                        else:
-                            await self.coordinator._poll_touch()
-                            await self.coordinator.async_refresh()
+                        await self.publish(signature,fast)
                     if decoder_task.done():
                         await decoder_task
                     # Leave a full interval after processing, including lock waits.
@@ -204,6 +257,7 @@ class MediaWorker:
                 self.error_code = err.code if isinstance(err, VideoError) else (
                     "timeout" if isinstance(err, TimeoutError) else "resolve_failed" if stage == "resolve" else "decoder_failed")
                 self._frames.clear()
+                self.updated_at = None
                 LOGGER.warning("Desk Display video unavailable (%s); retrying in 10 seconds", self.error_code)
             finally:
                 if decoder_task is not None:

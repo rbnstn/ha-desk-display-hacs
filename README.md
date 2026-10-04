@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.6.2**, Home Assistant **2026.9 oder neuer**.
+Version **0.6.3**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -36,7 +36,7 @@ ausgelöst. Die Editor-Vorschau ist ausschließlich zum Gestalten.
 Der MVP unterstützt eine normale Seite pro Display und ein optionales Klingel-
 Overlay. Pro Ansicht läuft ein Videofeld.
 
-## Optionales Klingel-Overlay ab 0.6.2
+## Optionales Klingel-Overlay ab 0.6.3
 
 Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen:
 
@@ -50,6 +50,14 @@ Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen
   Zusätzliche Kamera-Verbindung und Rechenlast auf dem HA-Host; keine Standby-
   Videoübertragung zum Display. Nach dem Speichern den ersten Kamerastart abwarten.
   Bis zu zwei Decoder (normales Videofeld und vorbereitete Overlay-Kamera).
+  Ab 0.6.3 wird parallel ein HA-Kamerabild vorbereitet, solange der Decoder noch
+  keinen aktuellen Streamframe liefert. Es wird höchstens alle zwei Sekunden
+  nach Abschluss des letzten Abrufs neu angefragt; bei laufendem Stream entfallen
+  diese Abrufe. Das Overlay verwendet das vorbereitete Bild und wechselt danach
+  zum Stream. Streamframes gelten 2,5 Sekunden, HA-Kamerabilder fünf Sekunden als
+  verwendbar. Die Anzeige **Kamera bereit** meldet Quelle und Empfangsalter.
+  Sie bestätigt den Empfang, nicht das Aufnahmealter eines von HA gecachten Bildes.
+  Ohne verfügbares Bild kann auch dieser Modus keine sofortige Ansicht garantieren.
   Beim Entladen oder Deaktivieren endet die Vorbereitung; veraltete Bereitschaftsbilder
   werden nicht als erstes Overlay-Bild verwendet.
 - **Automatisch schließen nach**: 5–300 Sekunden, standardmäßig 30.
