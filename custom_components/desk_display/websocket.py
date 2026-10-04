@@ -14,7 +14,7 @@ from .doorbell import get_doorbell, validate_doorbell, overlay_layout
 
 @callback
 def register_commands(hass):
-    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status):
+    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -31,6 +31,10 @@ def list_displays(hass, connection, msg):
          "jpeg_regions": bool(coordinator and (coordinator.data or {}).get("jpeg_regions")),
          "layout": get_layout(entry.options), "doorbell":get_doorbell(entry.options),
          "backups":entry.options.get('backups',[]),
+         "firmware":(coordinator.data or {}).get('version','unbekannt') if coordinator else 'unbekannt',
+         "brightness_control":bool(coordinator and (coordinator.data or {}).get('brightness_control')),
+         "ota_update":bool(coordinator and (coordinator.data or {}).get('ota_update')),
+         "confirmed_at":getattr(coordinator,'last_confirmed_time',None).isoformat() if coordinator and getattr(coordinator,'last_confirmed_time',None) else None,
          "doorbell_active":bool(coordinator and coordinator.doorbell_active)}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ])
@@ -79,7 +83,8 @@ async def preview(hass, connection, msg):
 
 
 @websocket_api.websocket_command({"type": "desk_display/save", vol.Required("entry_id"): str,
-                                  vol.Required("layout"): dict,vol.Optional('doorbell'):dict})
+                                  vol.Required("layout"): dict,vol.Optional('doorbell'):dict,
+                                  vol.Optional('page',default=0):vol.All(int,vol.Range(min=0,max=3))})
 @websocket_api.require_admin
 @websocket_api.async_response
 async def save(hass, connection, msg):
@@ -103,6 +108,8 @@ async def save(hass, connection, msg):
     sent = False
     if coordinator is not None:
         coordinator.stop_doorbell()
+        coordinator.page_index=min(msg.get('page',0),len(layout.get('pages',[])))
+        coordinator.page_deadline=0
         await coordinator.async_refresh()
         sent = coordinator.last_update_success
     connection.send_result(msg["id"], {"saved": True, "sent": sent,"backups":backups})
@@ -152,3 +159,16 @@ async def media_browse(hass, connection, msg):
         connection.send_result(msg["id"], item.as_dict())
     except Exception:
         connection.send_error(msg["id"], "media_unavailable", "Medienquelle nicht verfuegbar")
+
+
+@websocket_api.websocket_command({'type':'desk_display/diagnostics',vol.Required('entry_id'):str})
+@websocket_api.require_admin
+@callback
+def diagnostics(hass,connection,msg):
+    coordinator=hass.data.get(DOMAIN,{}).get(msg['entry_id'])
+    if coordinator is None:
+        connection.send_error(msg['id'],'not_found','Display nicht gefunden');return
+    data=coordinator.data or {}
+    connection.send_result(msg['id'],{'connected':coordinator.last_update_success,'firmware':data.get('version','unbekannt'),
+        'brightness_control':bool(data.get('brightness_control')),'ota_update':bool(data.get('ota_update')),
+        'age':round(__import__('time').monotonic()-coordinator.last_confirmed_at) if coordinator.last_confirmed_at else None})

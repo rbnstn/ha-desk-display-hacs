@@ -14,6 +14,8 @@ from .websocket import register_commands
 async def async_setup(hass, config):
     hass.data.setdefault(DOMAIN, {})
     register_commands(hass)
+    from .firmware import FirmwareUpload
+    hass.http.register_view(FirmwareUpload)
     await hass.http.async_register_static_paths([
         StaticPathConfig("/desk-display/panel.js",
                          str(Path(__file__).parent / "frontend" / "panel.js"), False)
@@ -21,7 +23,7 @@ async def async_setup(hass, config):
     await panel_custom.async_register_panel(
         hass, frontend_url_path="desk-display", webcomponent_name="desk-display-panel",
         sidebar_title="Desk Display", sidebar_icon="mdi:monitor-dashboard",
-        module_url="/desk-display/panel.js?v=0.13.0", require_admin=True,
+        module_url="/desk-display/panel.js?v=0.14.0", require_admin=True,
     )
     return True
 

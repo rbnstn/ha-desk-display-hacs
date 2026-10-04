@@ -61,6 +61,21 @@ class DisplayClient:
                 raise ValueError("Debug setting not confirmed")
             await response.read()
 
+    async def set_brightness(self,value):
+        async with self.session.post(f'{self.base}/api/brightness',params={'value':value},headers=self.headers,
+            timeout=aiohttp.ClientTimeout(total=5),allow_redirects=False) as response:
+            response.raise_for_status();await response.read()
+
+    async def update_firmware(self,data):
+        from .device_settings import validate_firmware
+        validate_firmware(data)
+        form=aiohttp.FormData();form.add_field('firmware',data,filename='firmware.bin',content_type='application/octet-stream')
+        async with self.session.post(f'{self.base}/api/update',data=form,headers=self.headers,
+            timeout=aiohttp.ClientTimeout(total=120),allow_redirects=False) as response:
+            response.raise_for_status()
+            if response.status!=200:raise ValueError('Firmware nicht bestaetigt')
+            await response.read()
+
     async def push_jpeg(self, data, x, y, width, height, revision, replace=False):
         form = aiohttp.FormData()
         form.add_field('jpeg',data,filename='frame.jpg',content_type='image/jpeg')

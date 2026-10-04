@@ -86,6 +86,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.doorbell_last_press=0
         self.page_index=0
         self.page_deadline=0
+        self.last_confirmed_at=0
+        self.firmware_updating=False
 
     @callback
     def async_start(self):
@@ -164,7 +166,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
 
     async def _poll_touch(self, _now=None):
         """Acknowledge before calling HA: uncertain network results never replay an action."""
-        if self.touch_stopped or self.touch_busy or not (self.data or {}).get("touch"):
+        if self.touch_stopped or self.touch_busy or self.firmware_updating or not (self.data or {}).get("touch"):
             return
         self.touch_busy = True
         try:
@@ -257,11 +259,21 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         async with self.io_lock:
+            if self.firmware_updating:return self.data
             return await self._update_frame()
+
+    async def async_set_brightness(self,value):
+        if not (self.data or {}).get('brightness_control'):raise ValueError('Helligkeit benoetigt Firmware 0.6.0')
+        layout=get_layout(self.entry.options)
+        from .device_settings import validate_settings
+        layout['device']=validate_settings({**layout.get('device',{}),'brightness':value,'night_enabled':False})
+        self.hass.config_entries.async_update_entry(self.entry,options={**self.entry.options,'layout':layout})
+        await self.async_refresh()
 
     async def async_video_frame(self, signature):
         """Fast video path: no heartbeat, RGB565 conversion or touch GET per frame."""
         async with self.io_lock:
+            if self.firmware_updating:return
             layout = current_layout(self)
             widget = video_widget(layout)
             if (not widget or signature != (widget['source'],widget['width'],widget['height'],widget['fps'])
@@ -286,6 +298,11 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             info = await self.client.info()
             if info["id"] != self.entry.unique_id:
                 raise ValueError("Unter dieser Adresse antwortet ein anderes Display")
+            if info.get('brightness_control'):
+                from .device_settings import brightness
+                value=brightness(get_layout(self.entry.options).get('device',{}),dt_util.now(),self.doorbell_active)
+                if info.get('brightness')!=value:
+                    await self.client.set_brightness(value);info['brightness']=value
             if video_widget(layout) and not info.get('buffered_regions'):
                 raise ValueError("Video benoetigt Display-Firmware 0.3.0")
             if info.get('debug_overlay') and info.get('debug_enabled') != layout['debug']:
@@ -311,6 +328,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 self.last_frame = frame
                 self.last_layout = layout
                 self.revision = revision
+            self.last_confirmed_at=monotonic()
+            self.last_confirmed_time=dt_util.utcnow()
             return info
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise UpdateFailed("Display nicht erreichbar oder Uebertragung fehlgeschlagen") from err

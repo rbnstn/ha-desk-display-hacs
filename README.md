@@ -294,7 +294,7 @@ Kein Firmware-Update erforderlich.
 
 ## Version 0.10.0: Designer editing tools
 
-RÃ¼ckgÃ¤ngig/Wiederholen mit 40 Schritten, optionales Raster mit Kantenfang, Mehrfachauswahl per Strg/Klick, Gruppieren, gemeinsam verschieben, ausrichten und verteilen. Gruppen werden im Layout gespeichert. Kein Firmware-Update nÃ¶tig.
+Rückgängig/Wiederholen mit 40 Schritten, optionales Raster mit Kantenfang, Mehrfachauswahl per Strg/Klick, Gruppieren, gemeinsam verschieben, ausrichten und verteilen. Gruppen werden im Layout gespeichert. Kein Firmware-Update nötig.
 
 ## Version 0.11.0: State rules
 
@@ -307,3 +307,7 @@ Vorschau-Simulation für HA-Zustände und Tür-Rückmeldungen ohne Geräteaktion
 ## Version 0.13.0: Pages and reusable templates
 
 Bis vier Seiten mit Touch-Navigation, optionalem Wechsel (15–300 Sekunden) und Pause während des Klingel-Overlays. Vorlagen für Werte, Schalter, Uhr/Datum und Kamera; eigene Gruppen per Komponenten-Datei wiederverwenden. Die unteren 44 Pixel bleiben bei mehreren Seiten für Navigation und Status frei. Ein Stream pro aktiver Seite, weiterhin maximal 1 FPS. Kein Firmware-Update nötig.
+
+## Version 0.14.0: Device controls and firmware updates
+
+Helligkeit, Nachtzeitplan und HA-Lichtentität, Aufhellen beim Klingeln, Verbindungsalter und Zeitstempel-Sensor. Authentifizierter Firmware-Upload mit Datei- und Geräteprüfung im Designer. Firmware 0.6.0 einmalig per USB für Helligkeit, Offline-Markierung mit letztem Bild und spätere Updates über WLAN. Alle Designer-Funktionen bleiben mit älterer Firmware nutzbar. Hardwarefunktionen sind implementiert und werden kompiliert, der reale Gerätetest steht noch aus.

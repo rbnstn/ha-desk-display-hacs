@@ -53,7 +53,7 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -63,6 +63,10 @@ def validate_layout(layout, nested=False):
     if type(layout.get("debug", False)) is not bool:
         raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
+    if 'device' in layout:
+        from .device_settings import validate_settings
+        if nested:raise ValueError('Geraeteeinstellungen nur auf der Hauptseite')
+        result['device']=validate_settings(layout['device'])
     if 'page_name' in layout:
         if not isinstance(layout['page_name'],str) or not 1<=len(layout['page_name'])<=20 or any(ord(c)<32 for c in layout['page_name']):raise ValueError('Seitenname: 1 bis 20 Zeichen')
         result['page_name']=layout['page_name']
@@ -178,6 +182,10 @@ def validate_layout(layout, nested=False):
         if not isinstance(layout['overlay'],dict) or 'overlay' in layout['overlay']:
             raise ValueError('Nur eine Overlay-Ebene erlaubt')
         result['overlay']=validate_layout(layout['overlay'])
+    if not nested:
+        from .pages import all_widgets
+        if sum(len(w.get('image','')) for w in all_widgets(result))>1100000:
+            raise ValueError('Bilder im gesamten Layout: maximal ca. 800 KiB; kleinere Bilder verwenden')
     return result
 
 

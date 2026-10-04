@@ -55,6 +55,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.videoPreviewTimer = setInterval(() => {
       if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => ['media','clock'].includes(w.kind))) && !this.previewTimer) this.preview(true);
       if (this.isConnected) this.refreshDoorbellStatus();
+      if(this.isConnected)this.refreshDiagnostics();
     }, 1000);
   }
   async refreshDoorbellStatus() {
@@ -80,6 +81,29 @@ export class DeskDisplayPanel extends HTMLElement {
         result.message || 'Kamera wird vorbereitet; noch kein aktuelles Bild vorhanden.';
     } catch(error) {target.textContent=`Kamerabereitschaft konnte nicht geprüft werden: ${error.message ?? error}`;}
     finally {this.doorbellStatusBusy=false;}
+  }
+  async refreshDiagnostics() {
+    if(this.diagnosticsBusy || Date.now()-(this.diagnosticsAt??0)<10000 || !this.devices[this.selected])return;
+    this.diagnosticsBusy=true;this.diagnosticsAt=Date.now();const device=this.devices[this.selected];
+    try {
+      const result=await this._hass.callWS({type:'desk_display/diagnostics',entry_id:device.id});
+      Object.assign(device,result);
+      if(device!==this.devices[this.selected])return;
+      const target=this.shadowRoot.querySelector('#device-status');
+      if(target)target.textContent=`${result.connected?'Verbunden':'Offline'} · Firmware ${result.firmware??'unbekannt'} · letzte Datenbestätigung ${result.age??'?'} s her`;
+    }catch(error){const target=this.shadowRoot.querySelector('#device-status');if(target)target.textContent='Verbindungsstatus derzeit nicht verfügbar.';}
+    finally{this.diagnosticsBusy=false;}
+  }
+  async updateFirmware(file) {
+    if(this.updatingFirmware)return;
+    if(!file || !file.name.endsWith('.bin') || file.size>1310720){this.status('Passende firmware.bin bis 1,25 MiB auswählen.');return;}
+    this.updatingFirmware=true;this.status('Firmware wird übertragen. Gerät nicht ausschalten …');
+    try {
+      const response=await this._hass.fetchWithAuth(`/api/desk_display/${encodeURIComponent(this.devices[this.selected].id)}/firmware`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
+      const result=await response.json();if(!response.ok)throw new Error(result.message??'Update fehlgeschlagen');
+      this.status(result.message);this.diagnosticsAt=0;
+    }catch(error){this.status('Firmware: '+(error.message??error));}
+    finally{this.updatingFirmware=false;}
   }
   async browseMedia(parent, widget, id = null, history = []) {
     let browser = parent.querySelector('.media-browser');
@@ -172,6 +196,18 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const w of widgets) {if(remove) delete w.group;else w.group=group;}
     this.recordEdit();this.draw();this.schedulePreview();
   }
+  showGuides(stage,widget) {
+    stage.querySelectorAll('.guide').forEach(line=>line.remove());
+    if(!this.snapEnabled)return;
+    const others=this.layout.widgets.filter(w=>!this.selectedWidgets().includes(w));
+    for(const [axis,size,bound] of [['x','width',480],['y','height',320]]) {
+      const targets=[0,bound/2,bound,...others.flatMap(w=>[w[axis],w[axis]+w[size]/2,w[axis]+w[size]])];
+      const edges=[widget[axis],widget[axis]+widget[size]/2,widget[axis]+widget[size]];
+      for(const value of new Set(targets.filter(t=>edges.some(e=>Math.abs(e-t)<1)))) {
+        const line=this.element('span',{class:`guide ${axis}`});line.style[axis==='x'?'left':'top']=`${value/bound*100}%`;stage.append(line);
+      }
+    }
+  }
   arrangeSelection(axis,distribute=false) {
     const widgets=this.selectedWidgets().sort((a,b)=>a[axis]-b[axis]);
     if(widgets.length<2)return;
@@ -180,7 +216,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const first=widgets[0][axis],last=widgets.at(-1)[axis]+widgets.at(-1)[size];
       const gap=(last-first-widgets.reduce((sum,w)=>sum+w[size],0))/(widgets.length-1);
       let cursor=first;for(const w of widgets){w[axis]=Math.round(cursor);cursor+=w[size]+gap;}
-    } else {for(const w of widgets)w[axis]=widgets[0][axis];}
+    } else {const anchor=Math.min(widgets[0][axis],(axis==='x'?480:320)-Math.max(...widgets.map(w=>w[size])));for(const w of widgets)w[axis]=anchor;}
     this.recordEdit();this.draw();this.schedulePreview();
   }
   documentLayout() {return this.pageIndex?this.rootLayout:this.layout;}
@@ -388,7 +424,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const savedDoorbell = structuredClone(this.doorbell);
     this.saving=true; this.status('Wird gespeichert und übertragen …');
     try {
-      const result = await this._hass.callWS({type:'desk_display/save',entry_id:this.devices[deviceIndex].id,layout:savedLayout,doorbell:savedDoorbell});
+      const result = await this._hass.callWS({type:'desk_display/save',entry_id:this.devices[deviceIndex].id,layout:savedLayout,doorbell:savedDoorbell,page:savedPage});
       this.devices[deviceIndex].layout = savedLayout;
       this.devices[deviceIndex].doorbell = savedDoorbell;
       this.devices[deviceIndex].backups=result.backups??this.devices[deviceIndex].backups;
@@ -410,7 +446,8 @@ export class DeskDisplayPanel extends HTMLElement {
       :host{display:block;color:var(--primary-text-color,#172033);font:15px system-ui}
       *{box-sizing:border-box}[hidden]{display:none!important}
       main{padding:16px;max-width:1500px;margin:auto;height:calc(100dvh - 56px);min-height:380px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
-      .workspace-header{display:flex;gap:24px;align-items:center;flex:none}.workspace-header h1{font-size:22px;margin:0;white-space:nowrap}
+      .workspace-header{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;flex:none}.workspace-header h1{font-size:22px;margin:0;white-space:nowrap}
+      #device-status{flex-basis:100%;font-size:12px;margin:0}
       .workspace-header select{min-width:0;flex:1;margin:0}
       h1{font-size:26px;margin:0 0 8px}p{line-height:1.5;color:var(--secondary-text-color,#64748b)}
       .columns{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;flex:1;min-height:0}
@@ -437,6 +474,8 @@ export class DeskDisplayPanel extends HTMLElement {
       button.secondary{background:#475569}button:disabled{opacity:.5;cursor:wait}
       .stage{position:relative;width:100%;aspect-ratio:3/2;background:#101827;border-radius:8px;overflow:hidden;touch-action:none}
       .stage img{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+      .stage[data-snap=true]:after{content:'';position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,#ffffff18 1px,transparent 1px),linear-gradient(to bottom,#ffffff18 1px,transparent 1px);background-size:1.6667% 2.5%;z-index:1}
+      .guide{position:absolute;background:#fbbf24;z-index:4;pointer-events:none}.guide.x{top:0;bottom:0;width:1px}.guide.y{left:0;right:0;height:1px}
       .hit{position:absolute;border:1px dashed #94a3b8;cursor:move;background:transparent;padding:0;margin:0;touch-action:none}
       .hit.active{border:2px solid #57d9b0}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
       .resize{position:absolute;right:0;bottom:0;z-index:3;width:18px;height:18px;background:#57d9b0;border:2px solid white;cursor:nwse-resize}
@@ -466,6 +505,7 @@ export class DeskDisplayPanel extends HTMLElement {
       this.layout = structuredClone(this.devices[this.selected].layout); this.loadDoorbell(); this.draw(); this.preview();
     };
     header.append(deviceSelect);
+    header.append(this.element('small',{id:'device-status',role:'status'},`${this.devices[this.selected].connected?'Verbunden':'Offline'} · Firmware ${this.devices[this.selected].firmware??'unbekannt'}`));
     const bellSection=this.element('div',{'data-pane':'doorbell',role:'tabpanel'});
     const bellSettings=this.element('details');
     bellSettings.open=true;
@@ -520,6 +560,7 @@ export class DeskDisplayPanel extends HTMLElement {
     });canvasSection.append(pageStrip);
     const well=this.element('div',{class:'preview-well'});
     const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
+    stage.dataset.snap=String(!!this.snapEnabled);
     const image = this.element('img', {alt: 'Vorschau der Anzeige'});
     if (this.previewImage) image.src = this.previewImage;
     stage.append(image);well.append(stage);canvasSection.append(well);
@@ -579,6 +620,22 @@ export class DeskDisplayPanel extends HTMLElement {
       'Debug-Anzeige und schnellere Bildupdates benötigen Display-Firmware 0.3.0.'));
     const displayPanel=this.element('div',{'data-pane':'display',role:'tabpanel'});
     displayPanel.append(...settings.childNodes);settings.append(displayPanel);
+    const deviceStart=displayPanel.childNodes.length;
+    const deviceSettings=this.documentLayout().device??{brightness:100,night_enabled:false,night_start:'22:00',night_end:'07:00',night_brightness:15,ring_brightness:100};
+    const setDevice=(key,value)=>{this.documentLayout().device={...deviceSettings,...this.documentLayout().device,[key]:value};};
+    this.field(displayPanel,'Helligkeit (%)',deviceSettings.brightness,value=>setDevice('brightness',Number(value)),{type:'number',min:0,max:100});
+    const night=this.element('input',{type:'checkbox','aria-label':'Nachtmodus'});night.checked=deviceSettings.night_enabled;night.onchange=()=>{setDevice('night_enabled',night.checked);this.schedulePreview();};
+    const nightLabel=this.element('label');nightLabel.append(night,document.createTextNode('Nachtmodus nach HA-Ortszeit'));displayPanel.append(nightLabel);
+    for(const [key,label] of [['night_start','Nacht ab'],['night_end','Nacht bis']])this.field(displayPanel,label,deviceSettings[key],value=>setDevice(key,value),{type:'time'});
+    for(const [key,label] of [['night_brightness','Nachthelligkeit (%)'],['ring_brightness','Helligkeit beim Klingeln (%)']])this.field(displayPanel,label,deviceSettings[key],value=>setDevice(key,Number(value)),{type:'number',min:0,max:100});
+    displayPanel.append(this.element('small',{},'Helligkeit und Nachtmodus benötigen Firmware 0.6.0. Eine HA-Lichtentität erlaubt Automationen; manuelles Schalten über HA beendet den Zeitplan. Beim Klingeln gilt die Klingelhelligkeit, danach wieder der Zeitplan.'));
+    this.wrapFields(displayPanel,deviceStart,'device','Helligkeit & Nachtmodus');
+    const firmwareStart=displayPanel.childNodes.length;
+    displayPanel.append(this.element('small',{},`Installierte Firmware: ${this.devices[this.selected].firmware??'unbekannt'}`));
+    const firmwareFile=this.element('input',{type:'file',accept:'.bin','aria-label':'Firmware-Datei'});displayPanel.append(firmwareFile);
+    const flash=this.element('button',{class:'secondary'},'Ausgewählte Firmware installieren');flash.disabled=!this.devices[this.selected].ota_update;flash.onclick=()=>this.updateFirmware(firmwareFile.files[0]);displayPanel.append(flash);
+    displayPanel.append(this.element('small',{},'Einmal Firmware 0.6.0 per USB installieren, danach sind Updates hier über WLAN möglich. Die lokal mit deinem bestehenden secrets.h gebaute firmware.bin auswählen (keine bootloader.bin oder partitions.bin). Das Gerät startet nach erfolgreichem Update neu; HA-Schlüssel bleiben im Browser verborgen.'));
+    this.wrapFields(displayPanel,firmwareStart,'firmware','Firmware aktualisieren');
     const pagesStart=displayPanel.childNodes.length;
     this.field(displayPanel,'Seitenname',this.layout.page_name??'Übersicht',value=>this.layout.page_name=value,{maxlength:20});
     this.field(displayPanel,'Automatischer Seitenwechsel (0 = aus, Sekunden)',this.documentLayout().rotation??0,value=>this.documentLayout().rotation=Number(value),{type:'number',min:0,max:300});
@@ -634,7 +691,7 @@ export class DeskDisplayPanel extends HTMLElement {
       forward.disabled=this.widgetIndex===this.layout.widgets.length-1;forward.onclick=()=>this.moveSelectedLayer(1);
       settings.append(duplicate,backward,forward);
       const snap=this.element('input',{type:'checkbox'});snap.checked=!!this.snapEnabled;
-      snap.onchange=()=>{this.snapEnabled=snap.checked;};
+      snap.onchange=()=>{this.snapEnabled=snap.checked;stage.dataset.snap=String(snap.checked);};
       const snapLabel=this.element('label');snapLabel.append(snap,document.createTextNode('8-Pixel-Raster und Kanten einrasten'));settings.append(snapLabel);
       settings.append(this.element('small',{},'Strg/Klick wählt mehrere Elemente. Gruppen werden gemeinsam verschoben.'));
       for(const [label,action] of [['Gruppieren',()=>this.groupSelection()],['Gruppe auflösen',()=>this.groupSelection(true)],['Links gemeinsam ausrichten',()=>this.arrangeSelection('x')],['Oben gemeinsam ausrichten',()=>this.arrangeSelection('y')],['Horizontal verteilen',()=>this.arrangeSelection('x',true)],['Vertikal verteilen',()=>this.arrangeSelection('y',true)]]) {
@@ -829,6 +886,7 @@ export class DeskDisplayPanel extends HTMLElement {
         event.preventDefault();
         if (index!==this.widgetIndex) {this.selectWidget(index);return;}
         this.nudgeSelected(...moves[event.key],event.shiftKey?10:1);position();
+        for(const [i,w] of this.layout.widgets.entries()){const target=stage.querySelectorAll('.hit')[i];if(target){target.style.left=`${w.x/4.8}%`;target.style.top=`${w.y/3.2}%`;}}
         this.shadowRoot.querySelector('[data-field=x]').value=widget.x;
         this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
         this.schedulePreview();
@@ -843,11 +901,12 @@ export class DeskDisplayPanel extends HTMLElement {
           const [x,y]=this.snapPosition(widget,Math.round(start.wx+(move.clientX-start.x)*480/rect.width),Math.round(start.wy+(move.clientY-start.y)*320/rect.height));
           this.moveSelection(x-widget.x,y-widget.y);
           position();
+          this.showGuides(stage,widget);
           for(const [i,w] of this.layout.widgets.entries()) {const target=stage.querySelectorAll('.hit')[i];if(target){target.style.left=`${w.x/4.8}%`;target.style.top=`${w.y/3.2}%`;}}
           this.shadowRoot.querySelector('[data-field=x]').value=widget.x;
           this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
         };
-        const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;this.schedulePreview();};
+        const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;stage.querySelectorAll('.guide').forEach(line=>line.remove());this.schedulePreview();};
         hit.onpointerup=end;hit.onpointercancel=end;
       };
       if (index===this.widgetIndex) {

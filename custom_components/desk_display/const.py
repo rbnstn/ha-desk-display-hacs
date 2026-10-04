@@ -4,7 +4,7 @@ DOMAIN = "desk_display"
 WIDTH = 480
 HEIGHT = 320
 PROTOCOL = 1
-PLATFORMS = ["binary_sensor", "button"]
+PLATFORMS = ["binary_sensor", "button", "light", "sensor"]
 DEFAULT_LAYOUT = {
     "background": "#101827",
     "widgets": [
