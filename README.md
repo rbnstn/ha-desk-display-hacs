@@ -339,3 +339,7 @@ Seitenverwaltung direkt an der Vorschau und im eigenen Reiter. Navigation reicht
 ## Version 0.16.0: Icons, Trennlinien und zehn Elemente
 
 Bis zu zehn Elemente je Seite. Bild ersetzt Bild / Logo; neue HA-Icon-Auswahl mit frei wählbarer Farbe und Größe. Neue horizontale oder vertikale Trennlinie mit einstellbarer Stärke. Klassisch entfällt aus der Designauswahl; bestehende Layouts bleiben lesbar. Duplizieren wählt nur die neue Kopie.
+
+## Version 0.16.1: Rasterkanten für bestehende Layouts
+
+Enthält die Verbesserungen aus 0.15.0 und 0.16.0. Größenänderungen richten die rechte und untere Kante am festen Raster aus, auch bei älteren Elementen außerhalb des Rasters. Neue Elemente starten auch bei voller Seite auf einer Rasterposition.

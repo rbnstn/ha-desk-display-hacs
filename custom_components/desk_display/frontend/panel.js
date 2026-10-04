@@ -262,7 +262,7 @@ export class DeskDisplayPanel extends HTMLElement {
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0)?276:320;
-    let position={x:24,y:Math.min(180,bottom-height)};
+    let position={x:24,y:Math.floor(Math.min(180,bottom-height)/8)*8};
     outer:for(let y=16;y+height<=bottom;y+=8)for(let x=16;x+width<=480;x+=8){
       if(this.layout.widgets.every(w=>x+width<=w.x || x>=w.x+w.width || y+height<=w.y || y>=w.y+w.height)){position={x,y};break outer;}
     }
@@ -990,8 +990,8 @@ export class DeskDisplayPanel extends HTMLElement {
     }
   }
   resizeWidget(widget,axis,width,height) {
-    if(axis!=='height')widget.width=Math.min(480-widget.x,Math.max(8,Math.round(width/8)*8));
-    if(axis!=='width')widget.height=Math.min(320-widget.y,Math.max(8,Math.round(height/8)*8));
+    if(axis!=='height')widget.width=Math.min(480-widget.x,Math.max(1,Math.round((widget.x+Math.max(8,width))/8)*8-widget.x));
+    if(axis!=='width')widget.height=Math.min(320-widget.y,Math.max(1,Math.round((widget.y+Math.max(8,height))/8)*8-widget.y));
   }
   refreshHits() {
     const stage = this.shadowRoot.querySelector('.stage');
