@@ -355,3 +355,7 @@ Verlaufsdiagramme aus HA-Recorder: Zeitfenster, Faktor, Einheit, automatische od
 ## Version 0.19.0: Touch-Feedback, Slider und Mediensteuerung
 
 Buttons können eine zweite Aktion für langes Drücken und eine Bestätigung durch erneutes Tippen erhalten. Feedback zeigt laufende Ausführung, Erfolg und Fehler. Slider für Licht, Lautstärke und HA-Zahlen; Mediaplayer mit Titel, Interpret, Cover und Steuerung. Firmware 0.7.0 ergänzt sofortiges Berührungsfeedback, Langdruck und Slider-Ziehen; bestehende Touch-Firmware bleibt für normales Tippen kompatibel.
+
+## Version 0.20.0: Meldungen und automatische Seiten
+
+Neue HA-Aktionen desk_display.notify und desk_display.show_page mit Geräteauswahl, Dauer und Priorität. Meldungen überdecken keine bedienbare Fläche ohne Touch-Sperre. Seitenregeln im Designer reagieren auf Zustandswechsel und kehren nach Ablauf zur vorherigen Seite zurück. Klingelansicht hat Vorrang.

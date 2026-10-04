@@ -53,7 +53,7 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -78,6 +78,12 @@ def validate_layout(layout, nested=False):
         if nested or not isinstance(layout['pages'],list) or len(layout['pages'])>3:raise ValueError('Maximal vier Seiten ohne Verschachtelung')
         result['pages']=[validate_layout(page,True) for page in layout['pages']]
         if any('overlay' in page or 'rotation' in page for page in result['pages']):raise ValueError('Seiten enthalten kein Overlay oder Rotation')
+    if "page_rules" in layout:
+        from .automation import validate_page_rules
+        if nested:raise ValueError("Seitenregeln nur auf der Hauptseite")
+        validate_page_rules(layout["page_rules"])
+        if any(rule["page"]>len(result.get("pages",[])) for rule in layout["page_rules"]):raise ValueError("Zielseite existiert nicht")
+        result["page_rules"]=copy.deepcopy(layout["page_rules"])
     if "theme" in layout:
         if layout["theme"] not in ("classic", "material_dark", "material_light"):
             raise ValueError("Unbekanntes Display-Design")

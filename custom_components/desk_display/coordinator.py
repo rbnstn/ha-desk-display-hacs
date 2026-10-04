@@ -91,6 +91,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.firmware_updating=False
         self.action_feedback={}
         self.confirm_action=None
+        self.notifications=[]
+        self.temporary_page=None
 
     @callback
     def async_start(self):
@@ -110,9 +112,24 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.entry.async_on_unload(self.stop_doorbell)
         self.entry.async_on_unload(async_track_time_interval(self.hass,self._rotate_page,timedelta(seconds=1)))
 
+    def notify(self,message,duration=15,priority=0):
+        now=monotonic();self.notifications=[n for n in self.notifications if n[2]>now]
+        self.notifications.append((message,priority,now+duration));self.notifications.sort(key=lambda n:n[1],reverse=True);self.notifications=self.notifications[:5]
+        async_call_later(self.hass,duration,lambda _:self.hass.async_create_task(self.async_refresh()) if not self.touch_stopped else None)
+
+    def show_page(self,index,duration=30):
+        layout=get_layout(self.entry.options)
+        if index>len(layout.get('pages',[])):raise ValueError('Seite existiert nicht')
+        previous=self.temporary_page[0] if self.temporary_page else self.page_index
+        self.temporary_page=(previous,monotonic()+duration);self.page_index=index;self.page_deadline=0
+
     @callback
     def _rotate_page(self,_now=None):
         layout=get_layout(self.entry.options);seconds=layout.get('rotation',0)
+        if self.temporary_page:
+            if self.doorbell_active:return
+            if monotonic()<self.temporary_page[1]:return
+            self.page_index=min(self.temporary_page[0],len(layout.get('pages',[])));self.temporary_page=None;self.page_deadline=0;self.hass.async_create_task(self.async_refresh())
         if not seconds or not layout.get('pages') or self.doorbell_active:
             self.page_deadline=0;return
         if not self.page_deadline:self.page_deadline=monotonic()+seconds
@@ -186,12 +203,13 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                         event['x'] >= 256 and event['y'] >= 300
                     ):
                         action = None
+                if event["y"]<32 and any(n[2]>monotonic() for n in self.notifications) and not self.doorbell_active:action=None
                 await self.client.acknowledge_touch(event["id"])
                 self.last_touch_id = event["id"]
             if action is not None and not self.touch_stopped:
                 domain, service, entity_id = action
                 if domain=='desk_display' and service=='page':
-                    self.page_index=int(entity_id);self.page_deadline=0
+                    self.page_index=int(entity_id);self.page_deadline=0;self.temporary_page=None
                     await self.async_refresh();return
                 widget=widget_at(self.last_layout,event["x"],event["y"])
                 state = self.hass.states.get(entity_id)
@@ -254,6 +272,12 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             return
         layout=current_layout(self)
         saved=get_layout(self.entry.options)
+        from .rules import matches
+        raw={'__raw__':{entity_id:(after.state if after else 'unavailable','')}}
+        old={'__raw__':{entity_id:(before.state if before else 'unavailable','')}}
+        for rule in saved.get('page_rules',[]):
+            if rule['when']['entity_id']==entity_id and matches(rule['when'],raw) and not matches(rule['when'],old):
+                self.show_page(rule['page'],rule['duration']);self.hass.async_create_task(self.async_refresh());return
         widgets=all_widgets(saved)+layout.get('overlay',{}).get('widgets',[])
         contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
         if not contact_changed and not any(entity_id in entities(widget) or (widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id','')))
@@ -322,6 +346,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
+            active=[n for n in self.notifications if n[2]>monotonic()]
+            if active and not self.doorbell_active:states["__notification__"]=active[0][0]
             states["__feedback__"]={entity:value[0] for entity,value in self.action_feedback.items() if monotonic()<value[1]}
             from .history import augment_states
             await augment_states(self.hass,layout,states)

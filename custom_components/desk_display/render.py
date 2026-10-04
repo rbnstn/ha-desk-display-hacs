@@ -56,6 +56,8 @@ def render_image(layout, states, media=None):
         draw.text((inset, inset), text[:160], font=ImageFont.load_default(size=widget["size"]),
                   fill=widget["color"], anchor="lt")
         image.paste(tile, (widget["x"], widget["y"]), tile)
+    if states.get('__notification__') and 'overlay' not in layout:
+        draw=ImageDraw.Draw(image);draw.rectangle((0,0,479,31),fill='#6750a4');draw.text((8,7),states['__notification__'][:70],font=ImageFont.load_default(size=14),fill='#ffffff')
     if 'overlay' in layout:
         image=Image.blend(image,Image.new('RGB',image.size,'black'),.6)
         modal=render_image(layout['overlay'],states,media)

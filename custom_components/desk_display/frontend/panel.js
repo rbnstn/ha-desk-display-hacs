@@ -742,6 +742,18 @@ export class DeskDisplayPanel extends HTMLElement {
     const addPage=this.element('button',{class:'secondary'},'Seite hinzufügen');addPage.disabled=(this.documentLayout().pages?.length??0)>=3;addPage.onclick=()=>this.addPage();pagesPanel.append(addPage);
     const removePage=this.element('button',{class:'secondary'},'Diese Seite entfernen');removePage.disabled=!this.pageIndex;
     removePage.onclick=()=>{this.documentLayout().pages.splice(this.pageIndex-1,1);this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
+    pagesPanel.append(this.element('h2',{},'Seiten bei HA-Ereignissen anzeigen'));
+    const rules=this.documentLayout().page_rules??[];
+    for(const [index,rule] of rules.entries()) {
+      const card=this.element('div',{class:'rule-card'});this.conditionFields(card,rule.when);
+      const target=this.element('select',{'aria-label':'Zielseite'});
+      [this.documentLayout(),...(this.documentLayout().pages??[])].forEach((page,i)=>target.append(this.element('option',{value:i},page.page_name??'Übersicht')));
+      target.value=rule.page;target.onchange=()=>{rule.page=Number(target.value);this.schedulePreview();};card.append(target);
+      this.field(card,'Anzeigedauer (Sekunden)',rule.duration,v=>rule.duration=Number(v),{type:'number',min:5,max:300});
+      const remove=this.element('button',{class:'secondary'},'Seitenregel entfernen');remove.onclick=()=>{rules.splice(index,1);this.draw();this.schedulePreview();};card.append(remove);pagesPanel.append(card);
+    }
+    const pageRule=this.element('button',{class:'secondary'},'Seitenregel hinzufügen');pageRule.disabled=rules.length>=8;
+    pageRule.onclick=()=>{(this.documentLayout().page_rules??=[]).push({when:{entity_id:'',op:'eq',value:'on'},page:0,duration:30});this.draw();};pagesPanel.append(pageRule,this.element('small',{},'Regel löst beim Wechsel von nicht erfüllt zu erfüllt aus. Danach erscheint wieder die vorherige Seite. HA-Automationen können auch die Aktionen Desk Display: Meldung anzeigen und Seite anzeigen verwenden.'));
     const templatesStart=displayPanel.childNodes.length;
     for(const [type,label] of [['energy','Drei HA-Werte'],['status','Schalterübersicht'],['clock','Uhrzeit mit Datum'],['camera','Kameraansicht']]){
       const button=this.element('button',{class:'secondary'},label);button.onclick=()=>this.addTemplate(type);displayPanel.append(button);

@@ -1,0 +1,51 @@
+notify:
+  name: Display-Meldung anzeigen
+  description: Zeigt eine Meldung vorübergehend an. Höhere Priorität wird zuerst angezeigt.
+  target:
+    device:
+      integration: desk_display
+  fields:
+    message:
+      name: Nachricht
+      required: true
+      selector:
+        text:
+    duration:
+      name: Dauer in Sekunden
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 300
+          mode: box
+    priority:
+      name: Priorität
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+show_page:
+  name: Display-Seite vorübergehend anzeigen
+  description: Zeigt eine Seite und kehrt anschließend zur vorherigen Seite zurück. Seite 0 ist die Hauptseite.
+  target:
+    device:
+      integration: desk_display
+  fields:
+    page:
+      name: Seite (0–3)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: box
+    duration:
+      name: Dauer in Sekunden
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 300
+          mode: box

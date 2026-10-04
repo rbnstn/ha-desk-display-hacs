@@ -5,7 +5,7 @@ def page_layout(layout,index=0):
     pages=[layout]+layout.get('pages',[])
     index=max(0,min(len(pages)-1,index))
     page=copy.deepcopy(pages[index])
-    for key in ('pages','page_name','rotation'):page.pop(key,None)
+    for key in ('pages','page_name','rotation','page_rules'):page.pop(key,None)
     page['debug']=layout.get('debug',False)
     page.pop('device',None)
     if len(pages)>1:
