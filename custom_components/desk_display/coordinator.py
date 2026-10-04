@@ -15,6 +15,7 @@ from .const import DEFAULT_LAYOUT, DOMAIN
 from .models import get_layout
 from .render import render_frame
 from .actions import action_at
+from .transport import regions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +78,10 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                     self.last_layout == get_layout(self.entry.options)
                 ):
                     action = action_at(self.last_layout, event["x"], event["y"])
+                    if (self.data or {}).get('debug_overlay') and self.last_layout.get('debug') and (
+                        event['x'] >= 256 and event['y'] >= 300
+                    ):
+                        action = None
                 await self.client.acknowledge_touch(event["id"])
                 self.last_touch_id = event["id"]
             if action is not None and not self.touch_stopped:
@@ -124,12 +129,20 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             if info["id"] != self.entry.unique_id:
                 raise ValueError("Unter dieser Adresse antwortet ein anderes Display")
             layout = get_layout(self.entry.options)
+            if info.get('debug_overlay') and info.get('debug_enabled') != layout['debug']:
+                await self.client.set_debug(layout['debug'])
+                info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
             frame = await self.hass.async_add_executor_job(render_frame, layout, states)
             # Resend after a reboot even when the layout and states did not change.
             if frame != self.last_frame or layout != self.last_layout or not info.get("has_frame", False):
                 revision = uuid.uuid4().hex
-                await self.client.push(frame, revision)
+                if info.get('buffered_regions'):
+                    previous = self.last_frame if info.get('has_frame') else None
+                    updates = await self.hass.async_add_executor_job(regions,frame,previous)
+                    await self.client.push_regions(updates,revision)
+                else:
+                    await self.client.push(frame, revision)
                 self.last_frame = frame
                 self.last_layout = layout
                 self.revision = revision

@@ -40,14 +40,18 @@ def validate_info(info):
 
 def validate_layout(layout):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or set(layout) != {"background", "widgets"}:
+    if not isinstance(layout, dict) or set(layout) not in (
+        {"background", "widgets"}, {"background", "widgets", "debug"}
+    ):
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
     widgets = layout["widgets"]
     if not isinstance(widgets, list) or len(widgets) > 8:
         raise ValueError("Maximal acht Elemente")
-    result = {"background": layout["background"], "widgets": []}
+    if type(layout.get("debug", False)) is not bool:
+        raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
+    result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
         if not isinstance(widget, dict) or set(widget) != keys:

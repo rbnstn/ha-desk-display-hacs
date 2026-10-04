@@ -26,6 +26,7 @@ def list_displays(hass, connection, msg):
          "connected": bool((coordinator := hass.data[DOMAIN].get(entry.entry_id))
                            and coordinator.last_update_success),
          "touch": bool(coordinator and (coordinator.data or {}).get("touch")),
+         "debug_overlay": bool(coordinator and (coordinator.data or {}).get("debug_overlay")),
          "layout": get_layout(entry.options)}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ])

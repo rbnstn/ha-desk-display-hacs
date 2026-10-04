@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.2.0**, Home Assistant **2026.9 oder neuer**.
+Version **0.3.0**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -53,6 +53,30 @@ eine Aktion aus; lange gehaltene Berührungen werden nicht wiederholt. Veraltete
 Ereignisse, andere Layoutversionen und nicht verfügbare Entitäten werden verworfen.
 Eine wegen Verbindungsverlust oder Zeitüberschreitung unsichere Aktion wird nicht
 automatisch wiederholt. Der Switch-Zustand kommt immer aus HA.
+
+## Ruhigere Bildupdates und Debug-Anzeige (Firmware 0.3.0)
+
+Neue Firmware empfängt ein komprimiertes Bild bzw. den geänderten Bildbereich
+vollständig, bevor sie ihn über SPI zeichnet. Dadurch wird der Bildschirm nicht
+mehr während des langsamen WLAN-Empfangs zeilenweise aufgebaut. Normale
+Wertänderungen übertragen nur den betroffenen Bereich. Für schlecht komprimierbare
+Bilder gibt es einen begrenzten, gepufferten Streifenmodus. Es gibt keinen
+vollständigen Bildpuffer und keine Zusage für völlig unsichtbare SPI-Bildwechsel.
+
+Im Designer **CPU und FPS anzeigen** aktivieren und **Speichern & übertragen**
+drücken. Das lokale Overlay erscheint unten rechts (224 × 20 Pixel). Deaktivieren
+und speichern blendet es wieder aus; die Einstellung bleibt in HA gespeichert.
+Keine zusätzlichen HA-Bildupdates werden für das Overlay erzeugt.
+
+- **CPU~**: statistische Näherung der mittleren Beschäftigung beider ESP32-Kerne,
+  durch Abtasten der laufenden Tasks gegenüber den Idle-Tasks etwa 997-mal pro Sekunde.
+- **FPS**: vollständig abgeschlossene HA-Bildupdates pro Sekunde, gemittelt über
+  fünf Sekunden. Die Debug-Anzeige selbst und einzelne Teilbereiche zählen nicht.
+  Bei unveränderten Daten sind 0 FPS korrekt; dies ist nicht die Scanfrequenz des TFT.
+
+Die Messung wird ausgeschaltet, wenn das Overlay deaktiviert ist. Unter dem Overlay
+liegende Buttons reagieren in dieser Ecke nicht auf Touch. Ältere Firmware kann
+weiterhin Texte und HA-Werte anzeigen, unterstützt aber diese Verbesserungen nicht.
 
 ## Kommunikation und Support
 

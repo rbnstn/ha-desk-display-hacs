@@ -76,6 +76,7 @@ export class DeskDisplayPanel extends HTMLElement {
       .columns{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;margin-top:24px}
       section{background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#ddd);border-radius:12px;padding:20px}
       label{display:block;margin:12px 0}input,select,button{font:inherit;border:1px solid #94a3b8;border-radius:6px;padding:9px}
+      input[type=checkbox]{width:auto;margin-right:8px}
       input,select{width:100%;background:var(--card-background-color,#fff);color:inherit;margin-top:5px}
       button{cursor:pointer;background:#2563eb;color:#fff;border:0;margin:5px 8px 5px 0}
       button.secondary{background:#475569}button:disabled{opacity:.5;cursor:wait}
@@ -144,6 +145,15 @@ export class DeskDisplayPanel extends HTMLElement {
       'Für Touch-Buttons und Switches bitte Display-Firmware 0.2.0 installieren. Text und HA-Werte funktionieren weiterhin.'));
     const settings = this.element('section');
     this.field(settings, 'Hintergrund', this.layout.background, value => this.layout.background = value, {type:'color'});
+    const debugLabel = this.element('label');
+    const debug = this.element('input', {type:'checkbox','aria-label':'CPU und FPS anzeigen'});
+    debug.checked = !!this.layout.debug;
+    debug.onchange = () => {this.layout.debug = debug.checked; this.status('Debug-Anzeige geändert. Zum Übertragen speichern.');};
+    debugLabel.append(debug,document.createTextNode('CPU und FPS anzeigen'));
+    settings.append(debugLabel,this.element('small', {},
+      'Debug-Anzeige unten rechts auf dem Gerät. CPU ≈ gemittelte Auslastung beider Kerne; FPS = abgeschlossene HA-Bildupdates pro Sekunde.'));
+    if (!this.devices[this.selected].debug_overlay) settings.append(this.element('small', {},
+      'Debug-Anzeige und schnellere Bildupdates benötigen Display-Firmware 0.3.0.'));
     const widgetSelect = this.element('select', {'aria-label':'Element auswählen'});
     this.layout.widgets.forEach((widget,index) => widgetSelect.append(this.element('option',{value:index},`${index+1}. ${widget.text || widget.entity_id}`)));
     widgetSelect.value = this.widgetIndex;

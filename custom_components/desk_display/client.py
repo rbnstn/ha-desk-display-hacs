@@ -50,3 +50,28 @@ class DisplayClient:
             if response.status != 200:
                 raise ValueError("Display hat die Uebertragung nicht bestaetigt")
             await response.read()
+
+    async def set_debug(self, enabled):
+        async with self.session.post(
+            f"{self.base}/api/debug", params={"enabled": '1' if enabled else '0'},
+            headers=self.headers, timeout=aiohttp.ClientTimeout(total=5), allow_redirects=False,
+        ) as response:
+            response.raise_for_status()
+            if response.status != 200:
+                raise ValueError("Debug setting not confirmed")
+            await response.read()
+
+    async def push_regions(self, updates, revision):
+        for index, (x,y,width,height,format_,data) in enumerate(updates):
+            form = aiohttp.FormData()
+            form.add_field('region',data,filename='region.bin',content_type='application/octet-stream')
+            async with self.session.post(
+                f"{self.base}/api/region", params={
+                    'x':x,'y':y,'width':width,'height':height,'format':format_,
+                    'revision':revision,'final':'1' if index == len(updates)-1 else '0'},
+                data=form,headers=self.headers,timeout=aiohttp.ClientTimeout(total=20),allow_redirects=False,
+            ) as response:
+                response.raise_for_status()
+                if response.status != 200:
+                    raise ValueError("Region not confirmed")
+                await response.read()
