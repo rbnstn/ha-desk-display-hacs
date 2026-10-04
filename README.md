@@ -331,3 +331,7 @@ Element hinzufügen öffnet sofort eine Auswahl mit sieben verständlich beschri
 ## Version 0.14.5: Klingelvorschau und optionaler Türöffner
 
 Klingel-Tab ohne überflüssiges Accordion. Tabwechsel aktiviert automatisch die Klingelvorschau; Element/Display zeigt wieder die normale Anzeige. Türöffner ist optional: ohne Knopf wächst die Kamera auf 432 × 240 Pixel und es gibt kein Tür-Touchziel. Eigene Beschriftung bis 80 Zeichen; Statusfeedback bleibt erhalten. Bestehende Einstellungen behalten ihren Türknopf. Keine Firmware-Aktualisierung erforderlich.
+
+## Version 0.15.0: Seitenverwaltung und festes Raster
+
+Seitenverwaltung direkt an der Vorschau und im eigenen Reiter. Navigation reicht bis zum unteren Displayrand. Feste zweireihige Elementliste ersetzt das doppelte Dropdown. Raster immer aktiv; Breite und Höhe rasten beim Ziehen ein.

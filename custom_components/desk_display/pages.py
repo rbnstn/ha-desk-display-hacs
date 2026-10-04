@@ -11,7 +11,7 @@ def page_layout(layout,index=0):
     if len(pages)>1:
         for i,item in enumerate(pages):
             left=i*480//len(pages);right=(i+1)*480//len(pages)
-            page['widgets'].append(dict(kind='navigation',text=item.get('page_name',f'Seite {i+1}'),entity_id='',x=left,y=276,width=right-left,height=24,size=12,color='#ffffff' if i==index else '#94a3b8',target=i,style={'surface':True,'background':'#6750a4' if i==index else '#24212b','radius':0,'align':'center'}))
+            page['widgets'].append(dict(kind='navigation',text=item.get('page_name',f'Seite {i+1}'),entity_id='',x=left,y=276,width=right-left,height=44,size=12,color='#ffffff' if i==index else '#94a3b8',target=i,style={'surface':True,'background':'#6750a4' if i==index else '#24212b','radius':0,'align':'center'}))
     return page
 
 def all_widgets(layout):

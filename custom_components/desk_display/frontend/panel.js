@@ -182,16 +182,9 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const w of widgets) {w.x+=dx;w.y+=dy;}
   }
   snapPosition(widget,x,y) {
-    if (!this.snapEnabled) return [x,y];
-    const selected=this.selectedWidgets(),others=this.layout.widgets.filter(w=>!selected.includes(w));
-    const snap=(value,size,bound,axis)=>{
-      const lines=[0,bound/2,bound,...others.flatMap(w=>[w[axis],w[axis]+w[axis==='x'?'width':'height']/2,w[axis]+w[axis==='x'?'width':'height']])];
-      const offsets=[0,size/2,size];let best=Math.round(value/8)*8,distance=Math.abs(best-value);
-      for (const line of lines) for (const offset of offsets) if (Math.abs(line-offset-value)<distance) {best=line-offset;distance=Math.abs(best-value);}
-      return Math.max(0,Math.min(bound-size,distance<=4?Math.round(best):value));
-    };
-    return [snap(x,widget.width,480,'x'),snap(y,widget.height,320,'y')];
+    return [Math.max(0,Math.min(480-widget.width,Math.round(x/8)*8)),Math.max(0,Math.min(320-widget.height,Math.round(y/8)*8))];
   }
+
   groupSelection(remove=false) {
     const widgets=this.selectedWidgets();
     const group='g'+Date.now().toString(36);
@@ -200,7 +193,7 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   showGuides(stage,widget) {
     stage.querySelectorAll('.guide').forEach(line=>line.remove());
-    if(!this.snapEnabled)return;
+    
     const others=this.layout.widgets.filter(w=>!this.selectedWidgets().includes(w));
     for(const [axis,size,bound] of [['x','width',480],['y','height',320]]) {
       const targets=[0,bound/2,bound,...others.flatMap(w=>[w[axis],w[axis]+w[size]/2,w[axis]+w[size]])];
@@ -370,7 +363,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.widgetIndex=this.layout.widgets.length-widgets.length;this.selection=new Set(widgets.map(w=>this.layout.widgets.indexOf(w)));this.draw();this.schedulePreview();
   }
   switchInspectorTab(tab,activatePreview=false) {
-    if (!['element','display','doorbell'].includes(tab)) return;
+    if (!['element','pages','display','doorbell'].includes(tab)) return;
     this.inspectorTab=tab;
     if(activatePreview && this.overlayPreview!==(tab==='doorbell')) {
       this.overlayPreview=tab==='doorbell';this.draw();this.preview();return;
@@ -538,6 +531,8 @@ export class DeskDisplayPanel extends HTMLElement {
       summary{cursor:pointer;font-weight:600;padding:12px 0}.group-body{padding-bottom:6px}
       .element-strip{display:flex;gap:6px;overflow:auto;flex:none;padding-bottom:2px}
       .element-strip button{white-space:nowrap;font-size:12px;margin:0;background:var(--secondary-background-color,#e7e0ec);color:inherit;padding:7px 10px}
+      .widget-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-template-rows:repeat(2,32px);height:70px;overflow:hidden;box-sizing:border-box}
+      .widget-strip button{min-width:0;overflow:hidden;text-overflow:ellipsis;padding:5px;font-size:11px}
       .element-strip button[aria-pressed=true]{background:#6750a4;color:white}
       section{background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#ddd);border-radius:20px;padding:20px}
       label{display:block;margin:12px 0}input,select,button{font:inherit;border:1px solid #94a3b8;border-radius:6px;padding:9px}
@@ -635,16 +630,17 @@ export class DeskDisplayPanel extends HTMLElement {
     const pageStrip=this.element('div',{class:'element-strip','aria-label':'Seiten'});
     [this.documentLayout(),...(this.documentLayout().pages??[])].forEach((page,index)=>{
       const button=this.element('button',{'aria-pressed':String(index===(this.pageIndex??0))},page.page_name??'Übersicht');button.onclick=()=>this.selectPage(index);pageStrip.append(button);
-    });canvasSection.append(pageStrip);
+    });
+    const managePages=this.element('button',{class:'secondary'},'Seiten verwalten');managePages.onclick=()=>this.switchInspectorTab('pages',true);pageStrip.append(managePages);canvasSection.append(pageStrip);
     const well=this.element('div',{class:'preview-well'});
     const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
-    stage.dataset.snap=String(!!this.snapEnabled);
+    stage.dataset.snap='true';
     const image = this.element('img', {alt: 'Vorschau der Anzeige'});
     if (this.previewImage) image.src = this.previewImage;
     stage.append(image);well.append(stage);canvasSection.append(well);
-    const elementStrip=this.element('div',{class:'element-strip','aria-label':'Elemente'});
+    const elementStrip=this.element('div',{class:'element-strip widget-strip','aria-label':'Elemente'});
     this.layout.widgets.forEach((widget,index)=>{
-      const choose=this.element('button',{'aria-pressed':String(this.selection?.has(index)||index===this.widgetIndex),'data-index':index},`${index+1}. ${this.widgetLabel(widget)}`);
+      const choose=this.element('button',{'aria-pressed':String(this.selection?.has(index)||index===this.widgetIndex),'data-index':index,title:this.widgetLabel(widget)},`${index+1}. ${this.widgetLabel(widget)}`);
       if(widget.group)choose.append(this.element('span',{class:'group-badge'},this.groupLabel(widget.group)));
       choose.disabled=this.overlayPreview;choose.onclick=event=>this.selectWidget(index,event.ctrlKey||event.metaKey);elementStrip.append(choose);
     });
@@ -712,13 +708,13 @@ export class DeskDisplayPanel extends HTMLElement {
     const flash=this.element('button',{class:'secondary'},'Ausgewählte Firmware installieren');flash.disabled=!this.devices[this.selected].ota_update;flash.onclick=()=>this.updateFirmware(firmwareFile.files[0]);displayPanel.append(flash);
     displayPanel.append(this.element('small',{},'Einmal Firmware 0.6.0 per USB installieren, danach sind Updates hier über WLAN möglich. Die lokal mit deinem bestehenden secrets.h gebaute firmware.bin auswählen (keine bootloader.bin oder partitions.bin). Das Gerät startet nach erfolgreichem Update neu; HA-Schlüssel bleiben im Browser verborgen.'));
     this.wrapFields(displayPanel,firmwareStart,'firmware','Firmware aktualisieren');
-    const pagesStart=displayPanel.childNodes.length;
-    this.field(displayPanel,'Seitenname',this.layout.page_name??'Übersicht',value=>this.layout.page_name=value,{maxlength:20});
-    this.field(displayPanel,'Automatischer Seitenwechsel (0 = aus, Sekunden)',this.documentLayout().rotation??0,value=>this.documentLayout().rotation=Number(value),{type:'number',min:0,max:300});
-    const addPage=this.element('button',{class:'secondary'},'Seite hinzufügen');addPage.disabled=(this.documentLayout().pages?.length??0)>=3;addPage.onclick=()=>this.addPage();displayPanel.append(addPage);
+    const pagesPanel=this.element('div',{'data-pane':'pages',role:'tabpanel'});
+    pagesPanel.append(this.element('h2',{},'Seiten & Wechsel')); 
+    this.field(pagesPanel,'Seitenname',this.layout.page_name??'Übersicht',value=>this.layout.page_name=value,{maxlength:20});
+    this.field(pagesPanel,'Automatischer Seitenwechsel (0 = aus, Sekunden)',this.documentLayout().rotation??0,value=>this.documentLayout().rotation=Number(value),{type:'number',min:0,max:300});
+    const addPage=this.element('button',{class:'secondary'},'Seite hinzufügen');addPage.disabled=(this.documentLayout().pages?.length??0)>=3;addPage.onclick=()=>this.addPage();pagesPanel.append(addPage);
     const removePage=this.element('button',{class:'secondary'},'Diese Seite entfernen');removePage.disabled=!this.pageIndex;
-    removePage.onclick=()=>{this.documentLayout().pages.splice(this.pageIndex-1,1);this.selectPage(0);};displayPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
-    this.wrapFields(displayPanel,pagesStart,'pages','Seiten & Wechsel');
+    removePage.onclick=()=>{this.documentLayout().pages.splice(this.pageIndex-1,1);this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
     const templatesStart=displayPanel.childNodes.length;
     for(const [type,label] of [['energy','Drei HA-Werte'],['status','Schalterübersicht'],['clock','Uhrzeit mit Datum'],['camera','Kameraansicht']]){
       const button=this.element('button',{class:'secondary'},label);button.onclick=()=>this.addTemplate(type);displayPanel.append(button);
@@ -750,11 +746,6 @@ export class DeskDisplayPanel extends HTMLElement {
     this.wrapFields(displayPanel,simulationStart,'simulation','Sichere Vorschau-Simulation');
     if(Object.keys(this.simulation.states).length || this.simulation.door)canvasSection.append(this.element('strong',{},'SIMULATION · nur Vorschau'));
     const widgetPanel=this.element('div',{'data-pane':'element',role:'tabpanel'});
-    const widgetSelect = this.element('select', {'aria-label':'Element auswählen'});
-    this.layout.widgets.forEach((widget,index) => widgetSelect.append(this.element('option',{value:index},`${index+1}. ${this.widgetLabel(widget)}`)));
-    widgetSelect.value = this.widgetIndex;
-    widgetSelect.onchange = () => this.selectWidget(Number(widgetSelect.value));
-    widgetPanel.append(this.element('label',{},'Ausgewähltes Element'),widgetSelect);
     const widget = this.layout.widgets[this.widgetIndex];
     if (widget) {
       const arrangeStart=settings.childNodes.length;
@@ -766,9 +757,6 @@ export class DeskDisplayPanel extends HTMLElement {
       const forward=this.element('button',{class:'secondary'},'Eine Ebene nach vorn');
       forward.disabled=this.widgetIndex===this.layout.widgets.length-1;forward.onclick=()=>this.moveSelectedLayer(1);
       settings.append(duplicate,backward,forward);
-      const snap=this.element('input',{type:'checkbox'});snap.checked=!!this.snapEnabled;
-      snap.onchange=()=>{this.snapEnabled=snap.checked;stage.dataset.snap=String(snap.checked);};
-      const snapLabel=this.element('label');snapLabel.append(snap,document.createTextNode('8-Pixel-Raster und Kanten einrasten'));settings.append(snapLabel);
       settings.append(this.element('small',{},'Strg/Klick wählt mehrere Elemente. Gruppen werden gemeinsam verschoben.'));
       if(widget.group)settings.append(this.element('small',{},`${this.groupLabel(widget.group)} · ${this.layout.widgets.filter(w=>w.group===widget.group).length} Elemente. Gelber Rahmen und gleiche Kennzeichnung zeigen die Zusammengehörigkeit.`));
       for(const [label,action] of [['Gruppieren',()=>this.groupSelection()],['Gruppe auflösen',()=>this.groupSelection(true)]]) {
@@ -925,10 +913,10 @@ export class DeskDisplayPanel extends HTMLElement {
     widgetPanel.append(...Array.from(settings.childNodes).filter(node=>node!==displayPanel));
     if (this.overlayPreview) widgetPanel.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),
       this.element('p',{},'Klingelvorschau aktiv. Wähle den Reiter Element, um die normale Anzeige zu bearbeiten.'));
-    settings.append(widgetPanel,bellSection);
+    settings.append(widgetPanel,bellSection,pagesPanel);
     const inspector=this.element('section',{class:'inspector'});
     const tabs=this.element('div',{class:'inspector-tabs',role:'tablist','aria-label':'Einstellungen'});
-    for (const [key,title] of [['element','Element'],['display','Display'],['doorbell','Klingel']]) {
+    for (const [key,title] of [['element','Element'],['pages','Seiten'],['display','Display'],['doorbell','Klingel']]) {
       const tab=this.element('button',{'data-tab':key,role:'tab','aria-controls':'pane-'+key},title);
       tab.onclick=()=>this.switchInspectorTab(key,true);tabs.append(tab);
       settings.querySelector('[data-pane='+key+']').id='pane-'+key;
@@ -963,8 +951,8 @@ export class DeskDisplayPanel extends HTMLElement {
     }
   }
   resizeWidget(widget,axis,width,height) {
-    if(axis!=='height')widget.width=Math.max(1,Math.min(480-widget.x,Math.round(width)));
-    if(axis!=='width')widget.height=Math.max(1,Math.min(320-widget.y,Math.round(height)));
+    if(axis!=='height')widget.width=Math.min(480-widget.x,Math.max(8,Math.round(width/8)*8));
+    if(axis!=='width')widget.height=Math.min(320-widget.y,Math.max(8,Math.round(height/8)*8));
   }
   refreshHits() {
     const stage = this.shadowRoot.querySelector('.stage');
