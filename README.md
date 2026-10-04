@@ -311,3 +311,7 @@ Bis vier Seiten mit Touch-Navigation, optionalem Wechsel (15–300 Sekunden) und
 ## Version 0.14.0: Device controls and firmware updates
 
 Helligkeit, Nachtzeitplan und HA-Lichtentität, Aufhellen beim Klingeln, Verbindungsalter und Zeitstempel-Sensor. Authentifizierter Firmware-Upload mit Datei- und Geräteprüfung im Designer. Firmware 0.6.0 einmalig per USB für Helligkeit, Offline-Markierung mit letztem Bild und spätere Updates über WLAN. Alle Designer-Funktionen bleiben mit älterer Firmware nutzbar. Hardwarefunktionen sind implementiert und werden kompiliert, der reale Gerätetest steht noch aus.
+
+## Version 0.14.1: Gerätefunktionen und geprüfte Verbindung
+
+Enthält die Gerätefunktionen aus 0.14.0 sowie bestätigte Daten-Heartbeats, geprüfte Firmware-Uploads, globale Debug-Einstellungen und eine größere Smartphone-Vorschau. HA-Vertragsprüfungen, Firmware-Build und Designer-Tests erfolgreich. Neue Hardwarefunktionen benötigen Firmware 0.6.0; einmalig per USB installieren.

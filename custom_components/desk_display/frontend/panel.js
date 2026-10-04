@@ -421,6 +421,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const deviceIndex = this.selected;
     const savedLayout = structuredClone(this.documentLayout());
     const savedPage=this.pageIndex??0;
+    const savedSimulation=structuredClone(this.simulation);
     const savedDoorbell = structuredClone(this.doorbell);
     this.saving=true; this.status('Wird gespeichert und übertragen …');
     try {
@@ -429,8 +430,8 @@ export class DeskDisplayPanel extends HTMLElement {
       this.devices[deviceIndex].doorbell = savedDoorbell;
       this.devices[deviceIndex].backups=result.backups??this.devices[deviceIndex].backups;
       if (deviceIndex===this.selected) this.savedSnapshot=this.editState(savedLayout,savedDoorbell);
-      const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview,page:savedPage});
-      if (deviceIndex===this.selected && savedPage===(this.pageIndex??0) && this.editState()===this.editState(savedLayout,savedDoorbell)) {
+      const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview,page:savedPage,simulation:savedSimulation});
+      if (deviceIndex===this.selected && savedPage===(this.pageIndex??0) && JSON.stringify(savedSimulation)===JSON.stringify(this.simulation) && this.editState()===this.editState(savedLayout,savedDoorbell)) {
         this.previewImage = `data:image/png;base64,${resultPreview.png}`;
         this.shadowRoot.querySelector('.stage img').src = this.previewImage;
       }
@@ -482,7 +483,7 @@ export class DeskDisplayPanel extends HTMLElement {
       #status{min-height:20px;margin:0;font-size:13px}small{display:block;margin-top:8px;color:var(--secondary-text-color,#64748b)}
       .canvas small{font-size:12px;margin:0}
       @media(max-width:800px){main{padding:10px;gap:8px}.workspace-header{gap:10px}.workspace-header h1{font-size:18px}
-        .columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(180px,40%) minmax(0,1fr);gap:10px}
+        .columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(360px,55%) minmax(0,1fr);gap:10px}
         .canvas{padding:10px;gap:6px}.canvas .canvas-meta{display:none}.toolbar button{font-size:12px;padding:8px}
         .element-strip button{padding:5px 8px}.save-state{font-size:11px}.inspector-scroll{padding:12px}}
     `));
@@ -611,8 +612,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.field(settings, 'Hintergrund', this.layout.background, value => this.layout.background = value, {type:'color'});
     const debugLabel = this.element('label');
     const debug = this.element('input', {type:'checkbox','aria-label':'CPU und FPS anzeigen'});
-    debug.checked = !!this.layout.debug;
-    debug.onchange = () => {this.layout.debug = debug.checked; this.status('Debug-Anzeige geändert. Zum Übertragen speichern.');};
+    debug.checked = !!this.documentLayout().debug;
+    debug.onchange = () => {this.documentLayout().debug = debug.checked; this.status('Debug-Anzeige geändert. Zum Übertragen speichern.');};
     debugLabel.append(debug,document.createTextNode('CPU und FPS anzeigen'));
     settings.append(debugLabel,this.element('small', {},
       'Debug-Anzeige unten rechts auf dem Gerät. CPU ≈ gemittelte Auslastung beider Kerne; FPS = abgeschlossene HA-Bildupdates pro Sekunde.'));

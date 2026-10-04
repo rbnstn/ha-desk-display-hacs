@@ -66,6 +66,11 @@ class DisplayClient:
             timeout=aiohttp.ClientTimeout(total=5),allow_redirects=False) as response:
             response.raise_for_status();await response.read()
 
+    async def confirm_data(self,revision):
+        async with self.session.post(f'{self.base}/api/heartbeat',params={'revision':revision},headers=self.headers,
+            timeout=aiohttp.ClientTimeout(total=5),allow_redirects=False) as response:
+            response.raise_for_status();await response.read()
+
     async def update_firmware(self,data):
         from .device_settings import validate_firmware
         validate_firmware(data)

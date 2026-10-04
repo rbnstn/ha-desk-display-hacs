@@ -328,6 +328,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 self.last_frame = frame
                 self.last_layout = layout
                 self.revision = revision
+            if info.get('status_heartbeat'):await self.client.confirm_data(self.revision)
             self.last_confirmed_at=monotonic()
             self.last_confirmed_time=dt_util.utcnow()
             return info
