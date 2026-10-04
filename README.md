@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.8.0**, Home Assistant **2026.9 oder neuer**.
+Version **0.9.0**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -270,5 +270,24 @@ Bilder als PNG, JPEG oder WebP hochladen (maximal 5 MB Eingabe); der Designer
 verkleinert sie auf maximal 480 × 320 und 100 KB. Transparente PNG-Logos werden
 unterstützt. Vollständige Anzeige oder zugeschnittenes Füllen ist wählbar. Bilder
 werden im Layout gespeichert; externe Bild-URLs und SVG sind nicht unterstützt.
+Nach dem HACS-Update HA neu starten und den Designer mit Strg+F5 neu laden.
+Kein Firmware-Update erforderlich.
+
+## Kompakter Designer ab 0.9.0
+
+Vorschau und Speichern bleiben im sichtbaren Arbeitsbereich. Rechts scrollen
+nur die Einstellungen. Die Reiter **Element**, **Display** und **Klingel** trennen
+Elementdaten von allgemeinen Einstellungen und dem optionalen Overlay.
+Anordnen, Umrechnung & Ersatzwert, Position & Größe und Aussehen sind aufklappbar.
+Geöffnete Gruppen bleiben während der Bearbeitung erhalten.
+
+Die Elementleiste unter der Vorschau ermöglicht einen schnellen Wechsel;
+Umbenennungen erscheinen sofort in Leiste und Auswahl. Das markierte Element
+lässt sich nach Fokussieren des Vorschaufelds mit Pfeiltasten um 1 Pixel bewegen,
+mit Shift um 10 Pixel. Ziehen und der grüne Griff für Größenänderung bleiben.
+Eine Anzeige neben dem Speichern-Button zeigt ungespeicherte Änderungen.
+Auch Änderungen während eines laufenden Speichervorgangs bleiben als
+ungespeichert erkennbar; eine ältere Speichervorschau überschreibt sie nicht.
+Der Designer passt Vorschau und Seitenleiste auch an schmale Fenster an.
 Nach dem HACS-Update HA neu starten und den Designer mit Strg+F5 neu laden.
 Kein Firmware-Update erforderlich.

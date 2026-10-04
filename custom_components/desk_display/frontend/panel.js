@@ -7,6 +7,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.selected = 0;
     this.widgetIndex = 0;
     this.previewSequence = 0;
+    this.inspectorTab = 'element';
+    this.groupsOpen = {};
     this.loadDoorbell();
   }
   set hass(value) {
@@ -28,6 +30,7 @@ export class DeskDisplayPanel extends HTMLElement {
     if (this.loaded) this.startVideoPreview();
   }
   disconnectedCallback() {
+    this.previewResize?.disconnect();
     clearInterval(this.videoPreviewTimer);
     this.videoPreviewTimer = null;
     clearTimeout(this.previewTimer);
@@ -119,9 +122,62 @@ export class DeskDisplayPanel extends HTMLElement {
     this.doorbell.post_open_duration ??= 45;
     this.doorbell.door_state_entity_id ??= '';
     this.overlayPreview = false;
+    this.savedSnapshot=this.editState();
+  }
+  editState(layout=this.layout,doorbell=this.doorbell) {
+    return JSON.stringify({layout,doorbell},(key,value)=>
+      ['style','value'].includes(key) && value && Object.keys(value).length===0 ? undefined : value);
+  }
+  updateSaveState() {
+    const target=this.shadowRoot?.querySelector?.('#save-state');
+    if (target) {
+      const dirty=this.editState()!==this.savedSnapshot;
+      target.textContent=this.saving?'Wird gespeichert …':dirty?'Ungespeicherte Änderungen':'Gespeichert';
+      target.dataset.dirty=String(dirty);
+    }
+    const save=this.shadowRoot?.querySelector?.('#save-layout');
+    if (save) save.disabled=!!this.saving;
+    const select=this.shadowRoot?.querySelector?.('select[aria-label="Element auswählen"]');
+    for (const [index,widget] of (this.layout?.widgets ?? []).entries()) {
+      const text=`${index+1}. ${this.widgetLabel(widget)}`;
+      if (select?.options[index]) select.options[index].textContent=text;
+      const button=this.shadowRoot?.querySelector?.(`.element-strip button[data-index="${index}"]`);
+      if (button) button.textContent=text;
+    }
+  }
+  widgetLabel(widget) {
+    return widget.text || widget.entity_id || ({image:'Bild / Logo',clock:'Uhrzeit',media:'Video',sensor:'HA-Wert',button:'Button',switch:'Switch',text:'Text'})[widget.kind];
+  }
+  wrapFields(parent,start,key,title,open=false) {
+    const group=this.element('details',{class:'editor-group'});
+    group.open=this.groupsOpen[key] ?? open;
+    group.append(this.element('summary',{},title));
+    const body=this.element('div',{class:'group-body'});
+    body.append(...Array.from(parent.childNodes).slice(start));
+    group.append(body);parent.append(group);
+    group.ontoggle=()=>this.groupsOpen[key]=group.open;
+  }
+  switchInspectorTab(tab) {
+    if (!['element','display','doorbell'].includes(tab)) return;
+    this.inspectorTab=tab;
+    for (const panel of this.shadowRoot.querySelectorAll('[data-pane]')) panel.hidden=panel.dataset.pane!==tab;
+    for (const button of this.shadowRoot.querySelectorAll('[data-tab]')) button.setAttribute('aria-selected',String(button.dataset.tab===tab));
+    const scroll=this.shadowRoot.querySelector('.inspector-scroll');
+    if (scroll) scroll.scrollTop=0;
+  }
+  selectWidget(index) {
+    if (!this.layout.widgets[index]) return;
+    this.widgetIndex=index;this.inspectorTab='element';this.draw();
+  }
+  nudgeSelected(dx,dy,step=1) {
+    const widget=this.layout.widgets[this.widgetIndex];
+    if (this.overlayPreview || !widget) return;
+    widget.x=Math.max(0,Math.min(480-widget.width,widget.x+dx*step));
+    widget.y=Math.max(0,Math.min(320-widget.height,widget.y+dy*step));
   }
   status(message) {
     this.shadowRoot.querySelector('#status').textContent = message;
+    this.updateSaveState();
   }
   field(parent, title, value, change, options = {}) {
     const label = this.element('label', {}, title);
@@ -200,13 +256,55 @@ export class DeskDisplayPanel extends HTMLElement {
       this.draw();this.schedulePreview();this.status('Bild vorbereitet. Zum Übertragen speichern.');
     } catch(error) {this.status('Bild: '+(error.message ?? error));}
   }
+  async saveLayout() {
+    if (this.saving || !this.devices[this.selected]) return;
+    clearTimeout(this.previewTimer);
+    this.previewTimer = null;
+    ++this.previewSequence;
+    const deviceIndex = this.selected;
+    const savedLayout = structuredClone(this.layout);
+    const savedDoorbell = structuredClone(this.doorbell);
+    this.saving=true; this.status('Wird gespeichert und übertragen …');
+    try {
+      const result = await this._hass.callWS({type:'desk_display/save',entry_id:this.devices[deviceIndex].id,layout:savedLayout,doorbell:savedDoorbell});
+      this.devices[deviceIndex].layout = savedLayout;
+      this.devices[deviceIndex].doorbell = savedDoorbell;
+      if (deviceIndex===this.selected) this.savedSnapshot=this.editState(savedLayout,savedDoorbell);
+      const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview});
+      if (deviceIndex===this.selected && this.editState()===this.editState(savedLayout,savedDoorbell)) {
+        this.previewImage = `data:image/png;base64,${resultPreview.png}`;
+        this.shadowRoot.querySelector('.stage img').src = this.previewImage;
+      }
+      if (deviceIndex===this.selected) this.status(result.sent ? 'Gespeichert und vom Display bestätigt.' : 'Gespeichert. Display offline oder Übertragung fehlgeschlagen; HA versucht es erneut.');
+    } catch (error) { if (deviceIndex===this.selected) this.status(`Fehler: ${error.message ?? error}`); }
+    finally { this.saving=false;this.updateSaveState(); }
+  }
   draw() {
+    this.previewResize?.disconnect();
     this.shadowRoot.replaceChildren();
     this.shadowRoot.append(this.element('style', {}, `
       :host{display:block;color:var(--primary-text-color,#172033);font:15px system-ui}
-      *{box-sizing:border-box}main{padding:28px;max-width:1100px;margin:auto}
+      *{box-sizing:border-box}[hidden]{display:none!important}
+      main{padding:16px;max-width:1500px;margin:auto;height:calc(100dvh - 56px);min-height:380px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+      .workspace-header{display:flex;gap:24px;align-items:center;flex:none}.workspace-header h1{font-size:22px;margin:0;white-space:nowrap}
+      .workspace-header select{min-width:0;flex:1;margin:0}
       h1{font-size:26px;margin:0 0 8px}p{line-height:1.5;color:var(--secondary-text-color,#64748b)}
-      .columns{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;margin-top:24px}
+      .columns{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;flex:1;min-height:0}
+      .canvas{min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px}
+      .preview-well{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+      .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:none}.toolbar button{margin:0}
+      #save-layout{margin-left:auto}.save-state{font-size:12px;white-space:nowrap;color:var(--secondary-text-color,#64748b)}
+      .save-state[data-dirty=true]{color:#d97706}
+      .inspector{display:flex;flex-direction:column;min-height:0;padding:0;overflow:hidden}
+      .inspector-tabs{display:flex;padding:12px;gap:4px;border-bottom:1px solid var(--divider-color,#ddd);flex:none}
+      .inspector-tabs button{flex:1;background:transparent;color:inherit;margin:0;border-radius:10px}
+      .inspector-tabs button[aria-selected=true]{background:#6750a4;color:white}
+      .inspector-scroll{overflow:auto;min-height:0;padding:16px;overscroll-behavior:contain;scrollbar-gutter:stable}
+      .editor-group{border-top:1px solid var(--divider-color,#ddd);margin-top:12px}
+      summary{cursor:pointer;font-weight:600;padding:12px 0}.group-body{padding-bottom:6px}
+      .element-strip{display:flex;gap:6px;overflow:auto;flex:none;padding-bottom:2px}
+      .element-strip button{white-space:nowrap;font-size:12px;margin:0;background:var(--secondary-background-color,#e7e0ec);color:inherit;padding:7px 10px}
+      .element-strip button[aria-pressed=true]{background:#6750a4;color:white}
       section{background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#ddd);border-radius:20px;padding:20px}
       label{display:block;margin:12px 0}input,select,button{font:inherit;border:1px solid #94a3b8;border-radius:6px;padding:9px}
       input[type=checkbox]{width:auto;margin-right:8px}
@@ -218,12 +316,16 @@ export class DeskDisplayPanel extends HTMLElement {
       .hit{position:absolute;border:1px dashed #94a3b8;cursor:move;background:transparent;padding:0;margin:0;touch-action:none}
       .hit.active{border:2px solid #57d9b0}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
       .resize{position:absolute;right:0;bottom:0;z-index:3;width:18px;height:18px;background:#57d9b0;border:2px solid white;cursor:nwse-resize}
-      #status{min-height:24px;margin-top:16px}small{display:block;margin-top:8px;color:var(--secondary-text-color,#64748b)}
-      @media(max-width:850px){.columns{grid-template-columns:1fr}main{padding:16px}}
+      #status{min-height:20px;margin:0;font-size:13px}small{display:block;margin-top:8px;color:var(--secondary-text-color,#64748b)}
+      .canvas small{font-size:12px;margin:0}
+      @media(max-width:800px){main{padding:10px;gap:8px}.workspace-header{gap:10px}.workspace-header h1{font-size:18px}
+        .columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(180px,40%) minmax(0,1fr);gap:10px}
+        .canvas{padding:10px;gap:6px}.canvas .canvas-meta{display:none}.toolbar button{font-size:12px;padding:8px}
+        .element-strip button{padding:5px 8px}.save-state{font-size:11px}.inspector-scroll{padding:12px}}
     `));
     const main = this.element('main');
-    main.append(this.element('h1', {}, 'Desk Display'),
-      this.element('p', {}, 'Platziere Texte, HA-Werte, Videos, Buttons und Switches auf deinem E32R35T.'));
+    const header=this.element('header',{class:'workspace-header'});
+    header.append(this.element('h1',{},'Desk Display'));main.append(header);
     this.shadowRoot.append(main);
     if (!this.devices.length) {
       main.append(this.element('section', {}, 'Noch kein Display eingerichtet. Füge Desk Display unter Einstellungen → Geräte & Dienste hinzu.'));
@@ -239,10 +341,10 @@ export class DeskDisplayPanel extends HTMLElement {
       this.selected = Number(deviceSelect.value); this.widgetIndex = 0;
       this.layout = structuredClone(this.devices[this.selected].layout); this.loadDoorbell(); this.draw(); this.preview();
     };
-    main.append(deviceSelect);
-    const bellSection=this.element('section');
+    header.append(deviceSelect);
+    const bellSection=this.element('div',{'data-pane':'doorbell',role:'tabpanel'});
     const bellSettings=this.element('details');
-    bellSettings.open=this.bellSettingsOpen ?? !!this.doorbell.enabled;
+    bellSettings.open=true;
     bellSettings.ontoggle=()=>this.bellSettingsOpen=bellSettings.open;
     bellSettings.append(this.element('summary',{},'Klingel-Overlay (optional)'));
     const enabled=this.element('input',{type:'checkbox','aria-label':'Klingel-Overlay aktivieren'});
@@ -285,16 +387,23 @@ export class DeskDisplayPanel extends HTMLElement {
     };
     test.onclick=()=>testOverlay(true);close.onclick=()=>testOverlay(false);
     bellSettings.append(overlayPreview,test,close,this.element('small',{},'Vor dem Gerätetest aktivieren und speichern. Die Vorschau öffnet keine Tür. Binary-Sensoren lösen beim Wechsel Aus → Ein aus; Ereignis-Entitäten bei einem neuen Zeitstempel.'));
-    bellSection.append(bellSettings);main.append(bellSection);
+    bellSection.append(bellSettings);
     const columns = this.element('div', {class: 'columns'});
-    const canvasSection = this.element('section');
+    const canvasSection = this.element('section',{class:'canvas'});
+    const well=this.element('div',{class:'preview-well'});
     const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
     const image = this.element('img', {alt: 'Vorschau der Anzeige'});
     if (this.previewImage) image.src = this.previewImage;
-    stage.append(image); canvasSection.append(stage);
-    canvasSection.append(this.element('small', {}, this.overlayPreview ?
+    stage.append(image);well.append(stage);canvasSection.append(well);
+    const elementStrip=this.element('div',{class:'element-strip','aria-label':'Elemente'});
+    this.layout.widgets.forEach((widget,index)=>{
+      const choose=this.element('button',{'aria-pressed':String(index===this.widgetIndex),'data-index':index},`${index+1}. ${this.widgetLabel(widget)}`);
+      choose.disabled=this.overlayPreview;choose.onclick=()=>this.selectWidget(index);elementStrip.append(choose);
+    });
+    canvasSection.append(elementStrip);
+    canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
       'Overlay-Vorschau · Zum Bearbeiten der normalen Elemente auf „Normale Vorschau“ wechseln.' :
-      '480 × 320 Pixel · Elemente ziehen oder Position rechts eingeben. Später eingefügte Elemente liegen oben.'));
+      '480 × 320 Pixel · Ziehen oder Pfeiltasten; Shift = 10 Pixel. Größe am grünen Griff ändern.'));
     const add = this.element('button', {}, 'Element hinzufügen');
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 8;
     add.onclick = () => {
@@ -302,33 +411,17 @@ export class DeskDisplayPanel extends HTMLElement {
       if (this.layout.theme === 'material_light') this.layout.widgets.at(-1).color='#1d1b20';
       this.widgetIndex = this.layout.widgets.length - 1; this.draw(); this.preview();
     };
-    const save = this.element('button', {}, 'Speichern & übertragen');
-    save.onclick = async () => {
-      clearTimeout(this.previewTimer);
-      this.previewTimer = null;
-      ++this.previewSequence;
-      const deviceIndex = this.selected;
-      const savedLayout = structuredClone(this.layout);
-      const savedDoorbell = structuredClone(this.doorbell);
-      save.disabled = true; this.status('Wird gespeichert und übertragen …');
-      try {
-        const result = await this._hass.callWS({type:'desk_display/save',entry_id:this.devices[deviceIndex].id,layout:savedLayout,doorbell:savedDoorbell});
-        this.devices[deviceIndex].layout = savedLayout;
-        this.devices[deviceIndex].doorbell = savedDoorbell;
-        const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview});
-        this.previewImage = `data:image/png;base64,${resultPreview.png}`;
-        if (deviceIndex === this.selected) this.shadowRoot.querySelector('.stage img').src = this.previewImage;
-        this.status(result.sent ? 'Gespeichert und vom Display bestätigt.' : 'Gespeichert. Display offline oder Übertragung fehlgeschlagen; HA versucht es erneut.');
-      } catch (error) { this.status(`Fehler: ${error.message ?? error}`); }
-      finally { save.disabled = false; }
-    };
+    const save = this.element('button', {id:'save-layout'}, 'Speichern & übertragen');
+    save.onclick = () => this.saveLayout();
     const remove = this.element('button', {class:'secondary'}, 'Element entfernen');
     remove.disabled = this.overlayPreview || !this.layout.widgets.length;
     remove.onclick = () => this.removeSelected();
-    canvasSection.append(add, remove, save, this.element('div', {id:'status',role:'status'}));
+    const toolbar=this.element('div',{class:'toolbar'});
+    toolbar.append(add,remove,this.element('span',{id:'save-state',class:'save-state',role:'status'}),save);
+    canvasSection.append(toolbar, this.element('div', {id:'status',role:'status'}));
     if (!this.devices[this.selected].touch) canvasSection.append(this.element('small', {},
       'Für Touch-Buttons und Switches bitte Display-Firmware 0.2.0 installieren. Text und HA-Werte funktionieren weiterhin.'));
-    const settings = this.element('section');
+    const settings = this.element('div');
     const themeLabel = this.element('label',{},'Display-Design');
     const theme = this.element('select',{'aria-label':'Display-Design'});
     for (const [value,label] of [['classic','Klassisch'],['material_dark','Material · Dunkel'],['material_light','Material · Hell']])
@@ -346,14 +439,17 @@ export class DeskDisplayPanel extends HTMLElement {
       'Debug-Anzeige unten rechts auf dem Gerät. CPU ≈ gemittelte Auslastung beider Kerne; FPS = abgeschlossene HA-Bildupdates pro Sekunde.'));
     if (!this.devices[this.selected].debug_overlay) settings.append(this.element('small', {},
       'Debug-Anzeige und schnellere Bildupdates benötigen Display-Firmware 0.3.0.'));
+    const displayPanel=this.element('div',{'data-pane':'display',role:'tabpanel'});
+    displayPanel.append(...settings.childNodes);settings.append(displayPanel);
+    const widgetPanel=this.element('div',{'data-pane':'element',role:'tabpanel'});
     const widgetSelect = this.element('select', {'aria-label':'Element auswählen'});
-    this.layout.widgets.forEach((widget,index) => widgetSelect.append(this.element('option',{value:index},`${index+1}. ${widget.text || widget.entity_id}`)));
+    this.layout.widgets.forEach((widget,index) => widgetSelect.append(this.element('option',{value:index},`${index+1}. ${this.widgetLabel(widget)}`)));
     widgetSelect.value = this.widgetIndex;
-    widgetSelect.onchange = () => {this.widgetIndex = Number(widgetSelect.value); this.draw();};
-    settings.append(widgetSelect);
+    widgetSelect.onchange = () => this.selectWidget(Number(widgetSelect.value));
+    widgetPanel.append(this.element('label',{},'Ausgewähltes Element'),widgetSelect);
     const widget = this.layout.widgets[this.widgetIndex];
     if (widget) {
-      settings.append(this.element('h3',{},'Anordnen'));
+      const arrangeStart=settings.childNodes.length;
       const duplicate=this.element('button',{class:'secondary'},'Duplizieren');
       duplicate.disabled=widget.kind==='media' || this.layout.widgets.length>=8;
       duplicate.onclick=()=>this.duplicateSelected();
@@ -368,6 +464,8 @@ export class DeskDisplayPanel extends HTMLElement {
         alignment.append(this.element('option',{value},label));
       alignment.onchange=()=>this.alignSelected(alignment.value);
       settings.append(alignment,this.element('small',{},'Ausrichtung bezieht sich auf das ganze Display. Die oberste Ebene bestimmt auch das Touch-Ziel. Maximal acht Elemente und ein Videofeld.'));
+      this.wrapFields(settings,arrangeStart,'arrange','Anordnen');
+      const contentStart=settings.childNodes.length;
       const kind = this.element('select', {'aria-label':'Elementtyp'});
       for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild / Logo'],['clock','Uhrzeit / Datum']]) {
         kind.append(this.element('option',{value},label));
@@ -375,6 +473,7 @@ export class DeskDisplayPanel extends HTMLElement {
       kind.value = widget.kind;
       kind.onchange = () => {
         widget.kind = kind.value;
+        if (widget.text==='Neuer Text') widget.text=({image:'Bild / Logo',clock:'Uhrzeit',media:'Video',sensor:'HA-Wert',button:'Button',switch:'Switch',text:'Neuer Text'})[widget.kind];
         if (widget.kind!=='sensor') delete widget.value;
         if (widget.kind!=='clock') delete widget.clock_format;
         if (widget.kind!=='image') {delete widget.image;delete widget.fit;}
@@ -442,6 +541,7 @@ export class DeskDisplayPanel extends HTMLElement {
         const placeholder = widget.kind === 'button' ? 'script.tuer_oeffnen' : widget.kind === 'switch' ? 'switch.licht' : 'sensor.pv_leistung';
         this.field(settings, 'Entitäts-ID', widget.entity_id, value => {widget.entity_id = value;picker.value = value;}, {placeholder,'data-field':'entity_id'});
         if (widget.kind==='sensor') {
+          const valueStart=settings.childNodes.length;
           settings.append(this.element('small',{},'Beschriftung links, Wert rechts. Zahlenänderungen betreffen nur die Displayanzeige.'));
           const value=widget.value ??= {};
           this.field(settings,'Umrechnungsfaktor',value.factor ?? 1,input=>value.factor=Number(input.replace(',','.')),{type:'text',inputmode:'decimal'});
@@ -461,16 +561,21 @@ export class DeskDisplayPanel extends HTMLElement {
             mode.append(this.element('option',{value:key},label));
           mode.value=value.fallback_mode ?? 'both';mode.onchange=()=>{value.fallback_mode=mode.value;this.schedulePreview();};
           settings.append(mode,this.element('small',{},'Der ursprüngliche HA-Wert wird geprüft, bevor der Faktor angewendet wird. Der Ersatzwert erhält dieselbe Umrechnung und Einheit.'));
+          this.wrapFields(settings,valueStart,'values','Umrechnung & Ersatzwert');
         }
         if (widget.kind !== 'sensor') settings.append(this.element('small', {}, widget.kind === 'button'
           ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
           : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));
       }
+      this.wrapFields(settings,contentStart,'content','Inhalt & Daten',true);
+      const positionStart=settings.childNodes.length;
       for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,480],['height','Höhe',1,320]]]) {
         const row = this.element('div',{class:'row'});
         for (const [key,title,min,max] of fields) this.field(row,title,widget[key],value=>{widget[key]=Number(value);this.refreshHits();},{type:'number',min,max,step:1,'data-field':key});
         settings.append(row);
       }
+      this.wrapFields(settings,positionStart,'position','Position & Größe');
+      const appearanceStart=settings.childNodes.length;
       this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
       if (this.layout.theme?.startsWith('material_')) {
@@ -489,10 +594,31 @@ export class DeskDisplayPanel extends HTMLElement {
         align.onchange=()=>{style.align=align.value;this.schedulePreview();};
         if (!['media','image','sensor'].includes(widget.kind)) settings.append(align);
       }
+      this.wrapFields(settings,appearanceStart,'appearance','Aussehen');
     }
-    if (this.overlayPreview) settings.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),
-      this.element('p',{},'Die Overlay-Vorlage zeigt Kamera und Türöffner an festen Positionen. Die Auswahl und Dauer stellst du oben ein. Zum Verschieben und Vergrößern deiner normalen Elemente auf „Normale Vorschau“ wechseln.'));
-    columns.append(canvasSection,settings);main.append(columns);this.refreshHits();
+    widgetPanel.append(...Array.from(settings.childNodes).filter(node=>node!==displayPanel));
+    if (this.overlayPreview) widgetPanel.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),
+      this.element('p',{},'Zum Bearbeiten deiner normalen Elemente im Reiter Klingel auf „Normale Vorschau“ wechseln.'));
+    settings.append(widgetPanel,bellSection);
+    const inspector=this.element('section',{class:'inspector'});
+    const tabs=this.element('div',{class:'inspector-tabs',role:'tablist','aria-label':'Einstellungen'});
+    for (const [key,title] of [['element','Element'],['display','Display'],['doorbell','Klingel']]) {
+      const tab=this.element('button',{'data-tab':key,role:'tab','aria-controls':'pane-'+key},title);
+      tab.onclick=()=>this.switchInspectorTab(key);tabs.append(tab);
+      settings.querySelector('[data-pane='+key+']').id='pane-'+key;
+    }
+    const scroll=this.element('div',{class:'inspector-scroll'});scroll.append(settings);
+    inspector.append(tabs,scroll);
+    columns.append(canvasSection,inspector);main.append(columns);this.refreshHits();
+    this.switchInspectorTab(this.inspectorTab);
+    this.updateSaveState();
+    if (typeof ResizeObserver!=='undefined') {
+      this.previewResize=new ResizeObserver(entries=>{
+        const {width,height}=entries[0].contentRect;
+        stage.style.width=Math.max(1,Math.floor(Math.min(width,height*1.5)))+'px';
+      });
+      this.previewResize.observe(well);
+    }
   }
   refreshHits() {
     const stage = this.shadowRoot.querySelector('.stage');
@@ -502,8 +628,18 @@ export class DeskDisplayPanel extends HTMLElement {
       const hit = this.element('button',{class:`hit ${index===this.widgetIndex?'active':''}`,'aria-label':`Element ${index+1}: ${widget.text}`});
       const position = () => Object.assign(hit.style,{left:`${widget.x/4.8}%`,top:`${widget.y/3.2}%`,width:`${widget.width/4.8}%`,height:`${widget.height/3.2}%`});
       position();
+      hit.onkeydown=event=>{
+        const moves={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
+        if (!moves[event.key]) return;
+        event.preventDefault();
+        if (index!==this.widgetIndex) {this.selectWidget(index);return;}
+        this.nudgeSelected(...moves[event.key],event.shiftKey?10:1);position();
+        this.shadowRoot.querySelector('[data-field=x]').value=widget.x;
+        this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
+        this.schedulePreview();
+      };
       hit.onpointerdown = event => {
-        if (index!==this.widgetIndex) {this.widgetIndex=index;this.draw();return;}
+        if (index!==this.widgetIndex) {this.selectWidget(index);return;}
         event.preventDefault();hit.setPointerCapture(event.pointerId);
         const rect = stage.getBoundingClientRect();
         const start = {x:event.clientX,y:event.clientY,wx:widget.x,wy:widget.y};
@@ -539,6 +675,7 @@ export class DeskDisplayPanel extends HTMLElement {
     });
   }
   schedulePreview(quiet = false) {
+    this.updateSaveState();
     // State changes must not postpone a pending user edit or overwrite save feedback.
     if (quiet && this.previewTimer) return;
     clearTimeout(this.previewTimer);
@@ -557,7 +694,7 @@ export class DeskDisplayPanel extends HTMLElement {
         mediaStatus.textContent = item?.message || (item?.state === 'live' ? 'Stream läuft.' :
           item?.state === 'connecting' ? 'Verbindung zur Videoquelle wird aufgebaut …' : 'Zum Starten der Quelle speichern.');
       }
-      if (!quiet) this.status('Vorschau aktualisiert. Zum Übertragen speichern.');
+      if (!quiet) this.status(this.editState()!==this.savedSnapshot?'Vorschau aktualisiert. Zum Übertragen speichern.':'Vorschau aktualisiert.');
     } catch(error) {if(sequence===this.previewSequence && !quiet)this.status(`Vorschau: ${error.message ?? error}`);}
   }
 }
