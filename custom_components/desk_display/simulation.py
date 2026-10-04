@@ -16,5 +16,7 @@ def apply_simulation(states,layout,simulation):
     if door and 'overlay' in layout:
         widgets=layout['overlay']['widgets']
         if door in ('open','closed'):widgets[0]['text']=labels[door]
-        else:widgets[-1]['text']=labels[door]
+        else:
+            button=next((w for w in widgets if w['kind']=='button'),None)
+            if button:button['text']=labels[door]
     return bool(overrides or door)

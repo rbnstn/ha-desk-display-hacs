@@ -145,6 +145,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.doorbell.preload ??= false;
     this.doorbell.post_open_duration ??= 45;
     this.doorbell.door_state_entity_id ??= '';
+    this.doorbell.open_enabled ??= true;
+    this.doorbell.open_label ??= 'Tuer oeffnen';
     this.overlayPreview = false;
     this.simulation={states:{},door:''};
     this.savedSnapshot=this.editState();
@@ -367,9 +369,12 @@ export class DeskDisplayPanel extends HTMLElement {
     const group='t'+Date.now().toString(36);widgets.forEach(w=>w.group=group);this.layout.widgets.push(...widgets);
     this.widgetIndex=this.layout.widgets.length-widgets.length;this.selection=new Set(widgets.map(w=>this.layout.widgets.indexOf(w)));this.draw();this.schedulePreview();
   }
-  switchInspectorTab(tab) {
+  switchInspectorTab(tab,activatePreview=false) {
     if (!['element','display','doorbell'].includes(tab)) return;
     this.inspectorTab=tab;
+    if(activatePreview && this.overlayPreview!==(tab==='doorbell')) {
+      this.overlayPreview=tab==='doorbell';this.draw();this.preview();return;
+    }
     for (const panel of this.shadowRoot.querySelectorAll('[data-pane]')) panel.hidden=panel.dataset.pane!==tab;
     for (const button of this.shadowRoot.querySelectorAll('[data-tab]')) button.setAttribute('aria-selected',String(button.dataset.tab===tab));
     const scroll=this.shadowRoot.querySelector('.inspector-scroll');
@@ -580,26 +585,28 @@ export class DeskDisplayPanel extends HTMLElement {
     header.append(deviceSelect);
     header.append(this.element('small',{id:'device-status',role:'status'},`${this.devices[this.selected].connected?'Verbunden':'Offline'} · Firmware ${this.devices[this.selected].firmware??'unbekannt'}`));
     const bellSection=this.element('div',{'data-pane':'doorbell',role:'tabpanel'});
-    const bellSettings=this.element('details');
-    bellSettings.open=true;
-    bellSettings.ontoggle=()=>this.bellSettingsOpen=bellSettings.open;
-    bellSettings.append(this.element('summary',{},'Klingel-Overlay (optional)'));
+    const bellSettings=this.element('div');
     const enabled=this.element('input',{type:'checkbox','aria-label':'Klingel-Overlay aktivieren'});
     enabled.checked=!!this.doorbell.enabled;
     enabled.onchange=()=>{this.doorbell.enabled=enabled.checked;this.status('Klingel-Overlay geändert. Zum Übertragen speichern.');};
     const enabledLabel=this.element('label');enabledLabel.append(enabled,document.createTextNode('Klingel-Overlay aktivieren'));
-    bellSettings.append(enabledLabel,this.element('small',{},'Beim Klingeln legt sich Kamera und Türöffner über die normale Anzeige. Wiederholtes Klingeln verlängert die Zeit. Die Tür öffnet nur durch Antippen.'));
+    bellSettings.append(enabledLabel,this.element('small',{},'Beim Klingeln erscheint die Kamera über der normalen Anzeige. Ein optionaler Türknopf öffnet nur durch Antippen. Wiederholtes Klingeln verlängert die Zeit. Die Vorschau führt keine Türaktion aus.'));
+    const openEnabled=this.element('input',{type:'checkbox','aria-label':'Türöffner anzeigen'});openEnabled.checked=this.doorbell.open_enabled;
+    openEnabled.onchange=()=>{this.doorbell.open_enabled=openEnabled.checked;this.draw();this.schedulePreview();};
+    const openLabel=this.element('label');openLabel.append(openEnabled,document.createTextNode('Türöffner anzeigen'));bellSettings.append(openLabel);
+    if(this.doorbell.open_enabled)this.field(bellSettings,'Beschriftung des Türknopfs',this.doorbell.open_label,value=>this.doorbell.open_label=value,{maxlength:80});
     for (const [key,label,domains] of [
       ['entity_id','Klingel-Auslöser',['binary_sensor','event','input_button']],
       ['camera','Overlay-Kamera',['camera']],
       ['open_entity_id','Türöffner / Nuki-Schloss',['button','input_button','script','lock']],
       ['door_state_entity_id','Türkontakt (optional)',['binary_sensor']]]) {
+      if(key==='open_entity_id' && !this.doorbell.open_enabled)continue;
       const picker=this.element('ha-entity-picker');picker.hass=this._hass;
       picker.label=label;picker.includeDomains=domains;picker.value=this.doorbell[key];
       picker.addEventListener('value-changed',event=>{this.doorbell[key]=event.detail.value ?? '';this.schedulePreview();});
       bellSettings.append(picker);
     }
-    bellSettings.append(this.element('small',{},'Bei einem Schloss wird die Aktion „Tür öffnen“ ausgeführt. Das Schloss muss diese Aktion ohne PIN unterstützen; sonst ein HA-Skript verwenden.'));
+    if(this.doorbell.open_enabled)bellSettings.append(this.element('small',{},'Bei einem Schloss wird die Aktion „Tür öffnen“ ausgeführt. Das Schloss muss diese Aktion ohne PIN unterstützen; sonst ein HA-Skript verwenden.'));
     const preload=this.element('input',{type:'checkbox','aria-label':'Overlay-Kamera vorbereiten'});
     preload.checked=!!this.doorbell.preload;
     preload.onchange=()=>{this.doorbell.preload=preload.checked;this.status('Kameravorbereitung geändert. Zum Übertragen speichern.');};
@@ -609,11 +616,9 @@ export class DeskDisplayPanel extends HTMLElement {
     bellSettings.append(this.element('small',{id:'doorbell-ready',role:'status'},'Kamerabereitschaft wird geprüft …'));
     this.field(bellSettings,'Automatisch schließen nach (Sekunden)',this.doorbell.duration,
       value=>this.doorbell.duration=Number(value),{type:'number',min:5,max:300,step:1});
-    this.field(bellSettings,'Nach Türaktion mindestens weiter anzeigen (Sekunden)',this.doorbell.post_open_duration,
+    if(this.doorbell.open_enabled)this.field(bellSettings,'Nach Türaktion mindestens weiter anzeigen (Sekunden)',this.doorbell.post_open_duration,
       value=>this.doorbell.post_open_duration=Number(value),{type:'number',min:5,max:300,step:1});
-    bellSettings.append(this.element('small',{},'Der Türknopf zeigt Verarbeitung, ausgeführten Befehl oder Fehler. Nur ein Türkontakt (Ein = offen) bestätigt die physisch offene Tür; entriegelt beschreibt den Schlosszustand. Die Ansicht bleibt nach der Aktion standardmäßig noch 45 Sekunden offen.'));
-    const overlayPreview=this.element('button',{class:'secondary'},this.overlayPreview?'Normale Vorschau':'Overlay-Vorschau');
-    overlayPreview.onclick=()=>{this.overlayPreview=!this.overlayPreview;this.draw();this.preview();};
+    if(this.doorbell.open_enabled)bellSettings.append(this.element('small',{},'Der Türknopf zeigt Verarbeitung, ausgeführten Befehl oder Fehler. Nur ein Türkontakt (Ein = offen) bestätigt die physisch offene Tür; entriegelt beschreibt den Schlosszustand. Die Ansicht bleibt nach der Aktion standardmäßig noch 45 Sekunden offen.'));
     const test=this.element('button',{class:'secondary'},'Overlay am Display testen');
     const close=this.element('button',{class:'secondary'},'Overlay am Display schließen');
     const testOverlay=async active=>{
@@ -623,7 +628,7 @@ export class DeskDisplayPanel extends HTMLElement {
       } catch(error) {this.status(`Overlay: ${error.message ?? error}`);}
     };
     test.onclick=()=>testOverlay(true);close.onclick=()=>testOverlay(false);
-    bellSettings.append(overlayPreview,test,close,this.element('small',{},'Vor dem Gerätetest aktivieren und speichern. Die Vorschau öffnet keine Tür. Binary-Sensoren lösen beim Wechsel Aus → Ein aus; Ereignis-Entitäten bei einem neuen Zeitstempel.'));
+    bellSettings.append(test,close,this.element('small',{},'Vor dem Gerätetest aktivieren und speichern. Die Vorschau öffnet keine Tür. Binary-Sensoren lösen beim Wechsel Aus → Ein aus; Ereignis-Entitäten bei einem neuen Zeitstempel.'));
     bellSection.append(bellSettings);
     const columns = this.element('div', {class: 'columns'});
     const canvasSection = this.element('section',{class:'canvas'});
@@ -645,7 +650,7 @@ export class DeskDisplayPanel extends HTMLElement {
     });
     canvasSection.append(elementStrip);
     canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
-      'Overlay-Vorschau · Zum Bearbeiten der normalen Elemente auf „Normale Vorschau“ wechseln.' :
+      'Klingelvorschau · Zum Bearbeiten der normalen Anzeige auf „Element“ wechseln.' :
       '480 × 320 Pixel · Ziehen oder Pfeiltasten; Shift = 10 Pixel. Griffe rechts/unten ändern Breite/Höhe, die Ecke beides.'));
     const add = this.element('button', {id:'add-element'}, 'Element hinzufügen');
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 8;
@@ -919,13 +924,13 @@ export class DeskDisplayPanel extends HTMLElement {
     }
     widgetPanel.append(...Array.from(settings.childNodes).filter(node=>node!==displayPanel));
     if (this.overlayPreview) widgetPanel.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),
-      this.element('p',{},'Zum Bearbeiten deiner normalen Elemente im Reiter Klingel auf „Normale Vorschau“ wechseln.'));
+      this.element('p',{},'Klingelvorschau aktiv. Wähle den Reiter Element, um die normale Anzeige zu bearbeiten.'));
     settings.append(widgetPanel,bellSection);
     const inspector=this.element('section',{class:'inspector'});
     const tabs=this.element('div',{class:'inspector-tabs',role:'tablist','aria-label':'Einstellungen'});
     for (const [key,title] of [['element','Element'],['display','Display'],['doorbell','Klingel']]) {
       const tab=this.element('button',{'data-tab':key,role:'tab','aria-controls':'pane-'+key},title);
-      tab.onclick=()=>this.switchInspectorTab(key);tabs.append(tab);
+      tab.onclick=()=>this.switchInspectorTab(key,true);tabs.append(tab);
       settings.querySelector('[data-pane='+key+']').id='pane-'+key;
     }
     const scroll=this.element('div',{class:'inspector-scroll'});scroll.append(settings);
