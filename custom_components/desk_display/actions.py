@@ -8,6 +8,8 @@ SWITCH_SERVICES = {"switch": "toggle", "input_boolean": "toggle"}
 
 def action_at(layout, x, y):
     """The topmost rectangle blocks widgets underneath, including plain text."""
+    if 'overlay' in layout:
+        return action_at(layout['overlay'],x,y)
     for widget in reversed(layout["widgets"]):
         if widget["x"] <= x < widget["x"] + widget["width"] and (
             widget["y"] <= y < widget["y"] + widget["height"]

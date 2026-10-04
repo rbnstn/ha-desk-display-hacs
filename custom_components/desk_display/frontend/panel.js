@@ -7,13 +7,13 @@ export class DeskDisplayPanel extends HTMLElement {
     this.selected = 0;
     this.widgetIndex = 0;
     this.previewSequence = 0;
+    this.overlayPreview = false;
   }
   set hass(value) {
     const previous = this._hass;
     this._hass = value;
     if (this.isConnected && !this.loaded) this.load();
-    const picker = this.shadowRoot?.querySelector('ha-entity-picker');
-    if (picker) picker.hass = value;
+    for (const picker of this.shadowRoot?.querySelectorAll?.('ha-entity-picker') ?? []) picker.hass = value;
     if (this.isConnected && this.loaded && this.layout && previous &&
         this.layout.widgets.some(widget => {
           if (widget.kind === 'text') return false;
@@ -39,6 +39,7 @@ export class DeskDisplayPanel extends HTMLElement {
     try {
       this.devices = await this._hass.callWS({type: 'desk_display/list'});
       this.layout = structuredClone(this.devices[this.selected]?.layout);
+      this.loadDoorbell();
       this.draw();
       if (this.layout) this.preview();
       this.startVideoPreview();
@@ -50,7 +51,7 @@ export class DeskDisplayPanel extends HTMLElement {
   startVideoPreview() {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
-      if (this.isConnected && this.layout?.widgets.some(w => w.kind === 'media') && !this.previewTimer) this.preview(true);
+      if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => w.kind === 'media')) && !this.previewTimer) this.preview(true);
     }, 1000);
   }
   async browseMedia(parent, widget, id = null, history = []) {
@@ -85,6 +86,11 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
     if (text !== undefined) element.textContent = text;
     return element;
+  }
+  loadDoorbell() {
+    this.doorbell = structuredClone(this.devices[this.selected]?.doorbell ??
+      {enabled:false,entity_id:'',camera:'',open_entity_id:'',duration:30});
+    this.overlayPreview = false;
   }
   status(message) {
     this.shadowRoot.querySelector('#status').textContent = message;
@@ -141,18 +147,54 @@ export class DeskDisplayPanel extends HTMLElement {
     deviceSelect.value = this.selected;
     deviceSelect.onchange = () => {
       this.selected = Number(deviceSelect.value); this.widgetIndex = 0;
-      this.layout = structuredClone(this.devices[this.selected].layout); this.draw(); this.preview();
+      this.layout = structuredClone(this.devices[this.selected].layout); this.loadDoorbell(); this.draw(); this.preview();
     };
     main.append(deviceSelect);
+    const bellSection=this.element('section');
+    const bellSettings=this.element('details');
+    bellSettings.open=this.bellSettingsOpen ?? !!this.doorbell.enabled;
+    bellSettings.ontoggle=()=>this.bellSettingsOpen=bellSettings.open;
+    bellSettings.append(this.element('summary',{},'Klingel-Overlay (optional)'));
+    const enabled=this.element('input',{type:'checkbox','aria-label':'Klingel-Overlay aktivieren'});
+    enabled.checked=!!this.doorbell.enabled;
+    enabled.onchange=()=>{this.doorbell.enabled=enabled.checked;this.status('Klingel-Overlay geändert. Zum Übertragen speichern.');};
+    const enabledLabel=this.element('label');enabledLabel.append(enabled,document.createTextNode('Klingel-Overlay aktivieren'));
+    bellSettings.append(enabledLabel,this.element('small',{},'Beim Klingeln legt sich Kamera und Türöffner über die normale Anzeige. Wiederholtes Klingeln verlängert die Zeit. Die Tür öffnet nur durch Antippen.'));
+    for (const [key,label,domains] of [
+      ['entity_id','Klingel-Auslöser',['binary_sensor','event','input_button']],
+      ['camera','Overlay-Kamera',['camera']],
+      ['open_entity_id','Türöffner-Button oder Skript',['button','input_button','script']]]) {
+      const picker=this.element('ha-entity-picker');picker.hass=this._hass;
+      picker.label=label;picker.includeDomains=domains;picker.value=this.doorbell[key];
+      picker.addEventListener('value-changed',event=>{this.doorbell[key]=event.detail.value ?? '';this.schedulePreview();});
+      bellSettings.append(picker);
+    }
+    this.field(bellSettings,'Automatisch schließen nach (Sekunden)',this.doorbell.duration,
+      value=>this.doorbell.duration=Number(value),{type:'number',min:5,max:300,step:1});
+    const overlayPreview=this.element('button',{class:'secondary'},this.overlayPreview?'Normale Vorschau':'Overlay-Vorschau');
+    overlayPreview.onclick=()=>{this.overlayPreview=!this.overlayPreview;this.draw();this.preview();};
+    const test=this.element('button',{class:'secondary'},'Overlay am Display testen');
+    const close=this.element('button',{class:'secondary'},'Overlay am Display schließen');
+    const testOverlay=async active=>{
+      try {
+        const result=await this._hass.callWS({type:'desk_display/doorbell_test',entry_id:this.devices[this.selected].id,active});
+        this.status(result.sent?'Overlay-Ansicht vom Display bestätigt.':'Ansicht geändert. Display offline oder Übertragung fehlgeschlagen.');
+      } catch(error) {this.status(`Overlay: ${error.message ?? error}`);}
+    };
+    test.onclick=()=>testOverlay(true);close.onclick=()=>testOverlay(false);
+    bellSettings.append(overlayPreview,test,close,this.element('small',{},'Vor dem Gerätetest aktivieren und speichern. Die Vorschau öffnet keine Tür. Binary-Sensoren lösen beim Wechsel Aus → Ein aus; Ereignis-Entitäten bei einem neuen Zeitstempel.'));
+    bellSection.append(bellSettings);main.append(bellSection);
     const columns = this.element('div', {class: 'columns'});
     const canvasSection = this.element('section');
     const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
     const image = this.element('img', {alt: 'Vorschau der Anzeige'});
     if (this.previewImage) image.src = this.previewImage;
     stage.append(image); canvasSection.append(stage);
-    canvasSection.append(this.element('small', {}, '480 × 320 Pixel · Elemente ziehen oder Position rechts eingeben. Später eingefügte Elemente liegen oben.'));
+    canvasSection.append(this.element('small', {}, this.overlayPreview ?
+      'Overlay-Vorschau · Zum Bearbeiten der normalen Elemente auf „Normale Vorschau“ wechseln.' :
+      '480 × 320 Pixel · Elemente ziehen oder Position rechts eingeben. Später eingefügte Elemente liegen oben.'));
     const add = this.element('button', {}, 'Element hinzufügen');
-    add.disabled = this.layout.widgets.length >= 8;
+    add.disabled = this.overlayPreview || this.layout.widgets.length >= 8;
     add.onclick = () => {
       this.layout.widgets.push({kind:'text',text:'Neuer Text',entity_id:'',x:24,y:180,width:300,height:48,size:24,color:'#ffffff'});
       this.widgetIndex = this.layout.widgets.length - 1; this.draw(); this.preview();
@@ -164,11 +206,13 @@ export class DeskDisplayPanel extends HTMLElement {
       ++this.previewSequence;
       const deviceIndex = this.selected;
       const savedLayout = structuredClone(this.layout);
+      const savedDoorbell = structuredClone(this.doorbell);
       save.disabled = true; this.status('Wird gespeichert und übertragen …');
       try {
-        const result = await this._hass.callWS({type:'desk_display/save',entry_id:this.devices[deviceIndex].id,layout:savedLayout});
+        const result = await this._hass.callWS({type:'desk_display/save',entry_id:this.devices[deviceIndex].id,layout:savedLayout,doorbell:savedDoorbell});
         this.devices[deviceIndex].layout = savedLayout;
-        const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout});
+        this.devices[deviceIndex].doorbell = savedDoorbell;
+        const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview});
         this.previewImage = `data:image/png;base64,${resultPreview.png}`;
         if (deviceIndex === this.selected) this.shadowRoot.querySelector('.stage img').src = this.previewImage;
         this.status(result.sent ? 'Gespeichert und vom Display bestätigt.' : 'Gespeichert. Display offline oder Übertragung fehlgeschlagen; HA versucht es erneut.');
@@ -176,7 +220,7 @@ export class DeskDisplayPanel extends HTMLElement {
       finally { save.disabled = false; }
     };
     const remove = this.element('button', {class:'secondary'}, 'Element entfernen');
-    remove.disabled = !this.layout.widgets.length;
+    remove.disabled = this.overlayPreview || !this.layout.widgets.length;
     remove.onclick = () => this.removeSelected();
     canvasSection.append(add, remove, save, this.element('div', {id:'status',role:'status'}));
     if (!this.devices[this.selected].touch) canvasSection.append(this.element('small', {},
@@ -267,11 +311,14 @@ export class DeskDisplayPanel extends HTMLElement {
       this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
     }
+    if (this.overlayPreview) settings.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),
+      this.element('p',{},'Die Overlay-Vorlage zeigt Kamera und Türöffner an festen Positionen. Die Auswahl und Dauer stellst du oben ein. Zum Verschieben und Vergrößern deiner normalen Elemente auf „Normale Vorschau“ wechseln.'));
     columns.append(canvasSection,settings);main.append(columns);this.refreshHits();
   }
   refreshHits() {
     const stage = this.shadowRoot.querySelector('.stage');
     stage.querySelectorAll('.hit').forEach(element=>element.remove());
+    if (this.overlayPreview) return;
     this.layout.widgets.forEach((widget,index)=>{
       const hit = this.element('button',{class:`hit ${index===this.widgetIndex?'active':''}`,'aria-label':`Element ${index+1}: ${widget.text}`});
       const position = () => Object.assign(hit.style,{left:`${widget.x/4.8}%`,top:`${widget.y/3.2}%`,width:`${widget.width/4.8}%`,height:`${widget.height/3.2}%`});
@@ -321,7 +368,7 @@ export class DeskDisplayPanel extends HTMLElement {
   async preview(quiet = false) {
     const sequence=++this.previewSequence;
     try {
-      const result=await this._hass.callWS({type:'desk_display/preview',layout:this.layout});
+      const result=await this._hass.callWS({type:'desk_display/preview',layout:this.layout,doorbell:this.doorbell,overlay:this.overlayPreview});
       if(sequence!==this.previewSequence)return;
       this.previewImage=`data:image/png;base64,${result.png}`;
       this.shadowRoot.querySelector('.stage img').src=this.previewImage;

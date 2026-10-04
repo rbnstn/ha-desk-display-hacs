@@ -8,7 +8,7 @@ import aiohttp
 from homeassistant.core import callback
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.helpers.debounce import Debouncer
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_time_interval, async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DEFAULT_LAYOUT, DOMAIN
@@ -16,13 +16,14 @@ from .models import get_layout
 from .render import render_frame, render_jpeg
 from .actions import action_at
 from .transport import regions
+from .doorbell import current_layout, get_doorbell, is_ring, video_widget
 
 LOGGER = logging.getLogger(__name__)
 
 
 def snapshot_states(hass, layout):
     result = {}
-    for widget in layout["widgets"]:
+    for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
         if widget["kind"] in ("text", "media"):
             continue
         state = hass.states.get(widget["entity_id"])
@@ -49,6 +50,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.io_lock = asyncio.Lock()
         self.touch_busy = False
         self.touch_stopped = False
+        self.doorbell_active=False
+        self.doorbell_timer=None
 
     @callback
     def async_start(self):
@@ -65,6 +68,31 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             self.touch_stopped = True
             stop_timer()
         self.entry.async_on_unload(stop_touch)
+        self.entry.async_on_unload(self.stop_doorbell)
+
+    @callback
+    def stop_doorbell(self):
+        if self.doorbell_timer:
+            self.doorbell_timer()
+        self.doorbell_timer=None
+        self.doorbell_active=False
+
+    @callback
+    def show_doorbell(self):
+        config=get_doorbell(self.entry.options)
+        if not config['enabled'] or self.touch_stopped:
+            return False
+        self.stop_doorbell()
+        self.doorbell_active=True
+        self.doorbell_timer=async_call_later(self.hass,config['duration'],self.hide_doorbell)
+        self.hass.async_create_task(self.async_refresh())
+        return True
+
+    @callback
+    def hide_doorbell(self,_now=None):
+        self.stop_doorbell()
+        if not self.touch_stopped:
+            self.hass.async_create_task(self.async_refresh())
 
     async def _poll_touch(self, _now=None):
         """Acknowledge before calling HA: uncertain network results never replay an action."""
@@ -78,7 +106,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                     return
                 action = None
                 if event["id"] != self.last_touch_id and event["revision"] == self.revision and (
-                    self.last_layout == get_layout(self.entry.options)
+                    self.last_layout == current_layout(self)
                 ):
                     action = action_at(self.last_layout, event["x"], event["y"])
                     if (self.data or {}).get('debug_overlay') and self.last_layout.get('debug') and (
@@ -109,7 +137,13 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
     def _state_changed(self, event):
         """Push changes for the current saved layout, coalescing bursts of updates."""
         entity_id = event.data.get("entity_id")
-        widgets = self.entry.options.get("layout", DEFAULT_LAYOUT)["widgets"]
+        before = event.data.get("old_state")
+        after = event.data.get("new_state")
+        if is_ring(get_doorbell(self.entry.options),entity_id,before,after):
+            self.show_doorbell()
+            return
+        layout=current_layout(self)
+        widgets=layout['widgets']+layout.get('overlay',{}).get('widgets',[])
         if not any(widget["kind"] not in ("text", "media") and widget["entity_id"] == entity_id
                    for widget in widgets):
             return
@@ -129,8 +163,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
     async def async_video_frame(self, signature):
         """Fast video path: no heartbeat, RGB565 conversion or touch GET per frame."""
         async with self.io_lock:
-            layout = get_layout(self.entry.options)
-            widget = next((w for w in layout['widgets'] if w['kind']=='media'), None)
+            layout = current_layout(self)
+            widget = video_widget(layout)
             if (not widget or signature != (widget['source'],widget['width'],widget['height'],widget['fps'])
                 or layout != self.last_layout or not self.revision or not self.last_update_success):
                 return
@@ -146,20 +180,20 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
 
     async def _update_frame(self):
         try:
-            layout = get_layout(self.entry.options)
+            layout = current_layout(self)
             media = getattr(self, 'media', None)
             if media:
                 media.sync(layout)
             info = await self.client.info()
             if info["id"] != self.entry.unique_id:
                 raise ValueError("Unter dieser Adresse antwortet ein anderes Display")
-            if any(w['kind'] == 'media' for w in layout['widgets']) and not info.get('buffered_regions'):
+            if video_widget(layout) and not info.get('buffered_regions'):
                 raise ValueError("Video benoetigt Display-Firmware 0.3.0")
             if info.get('debug_overlay') and info.get('debug_enabled') != layout['debug']:
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
-            jpeg_video = info.get('jpeg_regions') and any(w['kind']=='media' for w in layout['widgets'])
+            jpeg_video = info.get('jpeg_regions') and video_widget(layout) is not None
             frame = await self.hass.async_add_executor_job(render_frame, layout, states,
                                                          dict(media.frames) if media and not jpeg_video else {})
             # Resend after a reboot even when the layout and states did not change.

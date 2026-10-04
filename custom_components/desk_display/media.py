@@ -14,6 +14,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 
 from .models import get_layout, validate_media_source
 from .video import VideoDecoder, VideoError
+from .doorbell import current_layout, video_widget
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class MediaWorker:
         self.coordinator.entry.async_on_unload(
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self.stop))
         self.coordinator.entry.async_on_unload(self.stop)
-        self.sync(get_layout(self.coordinator.entry.options))
+        self.sync(current_layout(self.coordinator))
 
     @callback
     def stop(self, _event=None):
@@ -82,11 +83,16 @@ class MediaWorker:
         self.task = None
 
     def sync(self, layout):
-        widget = next((w for w in layout["widgets"] if w["kind"] == "media"), None)
+        widget = video_widget(layout)
         signature = (widget["source"], widget["width"], widget["height"], widget['fps']) if widget else None
         if signature == self.signature:
             return
+        base=next((w for w in layout['widgets'] if w['kind']=='media'),None)
+        key=(base['source'],base['width'],base['height']) if base else None
+        cached=self.frames.get(key)
         self.stop()
+        if signature and cached is not None:
+            self.frames[key]=cached
         self.signature = signature
         self.status = "connecting" if signature else "idle"
         if signature:

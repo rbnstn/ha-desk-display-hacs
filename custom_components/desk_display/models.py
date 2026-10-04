@@ -53,7 +53,8 @@ def validate_info(info):
 def validate_layout(layout):
     """Normalize untrusted editor input, with strict bounds for rendering."""
     if not isinstance(layout, dict) or set(layout) not in (
-        {"background", "widgets"}, {"background", "widgets", "debug"}
+        {"background", "widgets"}, {"background", "widgets", "debug"},
+        {"background", "widgets", "overlay"}, {"background", "widgets", "debug", "overlay"}
     ):
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
@@ -107,6 +108,10 @@ def validate_layout(layout):
         result["widgets"].append(normalized)
     if sum(w["kind"] == "media" for w in result["widgets"]) > 1:
         raise ValueError("Stream-MVP: eine Videoquelle pro Display")
+    if 'overlay' in layout:
+        if not isinstance(layout['overlay'],dict) or 'overlay' in layout['overlay']:
+            raise ValueError('Nur eine Overlay-Ebene erlaubt')
+        result['overlay']=validate_layout(layout['overlay'])
     return result
 
 
