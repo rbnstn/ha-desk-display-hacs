@@ -18,7 +18,21 @@ def render_image(layout, states):
             value = states.get(widget["entity_id"], "Nicht verfuegbar")
             text = f"{text}: {value}" if text else value
         draw = ImageDraw.Draw(tile)
-        draw.text((0, 0), text[:160], font=ImageFont.load_default(size=widget["size"]),
+        inset = 0
+        if widget["kind"] in ("button", "switch"):
+            value = states.get(widget["entity_id"], "Nicht verfuegbar")
+            enabled = value not in ("Nicht verfuegbar", "unknown", "unavailable")
+            background = "#2563eb" if enabled else "#374151"
+            if widget["kind"] == "switch":
+                background = "#087f5b" if value == "on" else "#374151"
+                label = "Ein" if value == "on" else "Aus" if value == "off" else "?"
+                text = f"{text or widget['entity_id']}: {label}"
+            elif not text:
+                text = widget["entity_id"]
+            draw.rounded_rectangle((0, 0, widget["width"]-1, widget["height"]-1),
+                                   radius=min(10, widget["height"]//3), fill=background)
+            inset = 8
+        draw.text((inset, inset), text[:160], font=ImageFont.load_default(size=widget["size"]),
                   fill=widget["color"], anchor="lt")
         image.paste(tile, (widget["x"], widget["y"]), tile)
     return image

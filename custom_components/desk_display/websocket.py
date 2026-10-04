@@ -25,6 +25,7 @@ def list_displays(hass, connection, msg):
         {"id": entry.entry_id, "name": entry.title, "host": entry.data["host"],
          "connected": bool((coordinator := hass.data[DOMAIN].get(entry.entry_id))
                            and coordinator.last_update_success),
+         "touch": bool(coordinator and (coordinator.data or {}).get("touch")),
          "layout": get_layout(entry.options)}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ])

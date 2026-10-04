@@ -13,5 +13,5 @@ class DeskDisplayEntity(CoordinatorEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.entry.unique_id)},
             name=coordinator.entry.title, manufacturer="LCDWIKI",
-            model="E32R35T", sw_version="0.1.0",
+            model="E32R35T", sw_version=(coordinator.data or {}).get("version", "unbekannt"),
         )

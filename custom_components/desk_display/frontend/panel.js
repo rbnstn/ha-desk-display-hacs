@@ -16,7 +16,7 @@ export class DeskDisplayPanel extends HTMLElement {
     if (picker) picker.hass = value;
     if (this.isConnected && this.loaded && this.layout && previous &&
         this.layout.widgets.some(widget => {
-          if (widget.kind !== 'sensor') return false;
+          if (widget.kind === 'text') return false;
           const before = previous.states?.[widget.entity_id];
           const after = value.states?.[widget.entity_id];
           return before?.state !== after?.state ||
@@ -60,6 +60,13 @@ export class DeskDisplayPanel extends HTMLElement {
     label.append(input); parent.append(label);
     return input;
   }
+  removeSelected() {
+    if (!this.layout.widgets[this.widgetIndex]) return;
+    this.layout.widgets.splice(this.widgetIndex, 1);
+    this.widgetIndex = Math.max(0, Math.min(this.widgetIndex, this.layout.widgets.length - 1));
+    this.draw();
+    this.preview();
+  }
   draw() {
     this.shadowRoot.replaceChildren();
     this.shadowRoot.append(this.element('style', {}, `
@@ -81,7 +88,7 @@ export class DeskDisplayPanel extends HTMLElement {
     `));
     const main = this.element('main');
     main.append(this.element('h1', {}, 'Desk Display'),
-      this.element('p', {}, 'Gestalte die Anzeige deines E32R35T. Text und HA-Werte lassen sich frei platzieren.'));
+      this.element('p', {}, 'Platziere Texte, HA-Werte, Buttons und Switches auf deinem E32R35T.'));
     this.shadowRoot.append(main);
     if (!this.devices.length) {
       main.append(this.element('section', {}, 'Noch kein Display eingerichtet. Füge Desk Display unter Einstellungen → Geräte & Dienste hinzu.'));
@@ -114,6 +121,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const save = this.element('button', {}, 'Speichern & übertragen');
     save.onclick = async () => {
       clearTimeout(this.previewTimer);
+      this.previewTimer = null;
       ++this.previewSequence;
       const deviceIndex = this.selected;
       const savedLayout = structuredClone(this.layout);
@@ -128,7 +136,12 @@ export class DeskDisplayPanel extends HTMLElement {
       } catch (error) { this.status(`Fehler: ${error.message ?? error}`); }
       finally { save.disabled = false; }
     };
-    canvasSection.append(add, save, this.element('div', {id:'status',role:'status'}));
+    const remove = this.element('button', {class:'secondary'}, 'Element entfernen');
+    remove.disabled = !this.layout.widgets.length;
+    remove.onclick = () => this.removeSelected();
+    canvasSection.append(add, remove, save, this.element('div', {id:'status',role:'status'}));
+    if (!this.devices[this.selected].touch) canvasSection.append(this.element('small', {},
+      'Für Touch-Buttons und Switches bitte Display-Firmware 0.2.0 installieren. Text und HA-Werte funktionieren weiterhin.'));
     const settings = this.element('section');
     this.field(settings, 'Hintergrund', this.layout.background, value => this.layout.background = value, {type:'color'});
     const widgetSelect = this.element('select', {'aria-label':'Element auswählen'});
@@ -139,20 +152,39 @@ export class DeskDisplayPanel extends HTMLElement {
     const widget = this.layout.widgets[this.widgetIndex];
     if (widget) {
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      kind.append(this.element('option',{value:'text'},'Text'),this.element('option',{value:'sensor'},'HA-Wert'));
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch']]) {
+        kind.append(this.element('option',{value},label));
+      }
       kind.value = widget.kind;
-      kind.onchange = () => {widget.kind = kind.value; this.draw(); this.schedulePreview();};
+      kind.onchange = () => {
+        widget.kind = kind.value;
+        const domain = widget.entity_id.split('.')[0];
+        if ((widget.kind === 'button' && !['button','input_button','script'].includes(domain)) ||
+            (widget.kind === 'switch' && !['switch','input_boolean'].includes(domain))) widget.entity_id = '';
+        this.draw(); this.schedulePreview();
+      };
       settings.append(kind);
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
-      if (widget.kind === 'sensor') {
+      if (widget.kind !== 'text') {
         const picker = this.element('ha-entity-picker');
         picker.hass = this._hass; picker.value = widget.entity_id; picker.label = 'HA-Entität';
+        if (widget.kind === 'button') picker.includeDomains = ['button','input_button','script'];
+        if (widget.kind === 'switch') picker.includeDomains = ['switch','input_boolean'];
         picker.addEventListener('value-changed', event => {
-          if (event.detail.value !== widget.entity_id) {widget.entity_id = event.detail.value ?? ''; this.schedulePreview();}
+          if (event.detail.value !== widget.entity_id) {
+            widget.entity_id = event.detail.value ?? '';
+            const input = settings.querySelector('[data-field=entity_id]');
+            if (input) input.value = widget.entity_id;
+            this.schedulePreview();
+          }
         });
         settings.append(picker);
         // Also works before HA has lazy-loaded its entity picker.
-        this.field(settings, 'Entitäts-ID', widget.entity_id, value => {widget.entity_id = value;picker.value = value;}, {placeholder:'sensor.pv_leistung'});
+        const placeholder = widget.kind === 'button' ? 'script.tuer_oeffnen' : widget.kind === 'switch' ? 'switch.licht' : 'sensor.pv_leistung';
+        this.field(settings, 'Entitäts-ID', widget.entity_id, value => {widget.entity_id = value;picker.value = value;}, {placeholder,'data-field':'entity_id'});
+        if (widget.kind !== 'sensor') settings.append(this.element('small', {}, widget.kind === 'button'
+          ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
+          : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));
       }
       for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,480],['height','Höhe',1,320]]]) {
         const row = this.element('div',{class:'row'});
@@ -161,9 +193,6 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
-      const remove = this.element('button',{class:'secondary'},'Element entfernen');
-      remove.onclick = () => {this.layout.widgets.splice(this.widgetIndex,1);this.widgetIndex=Math.max(0,this.widgetIndex-1);this.draw();this.preview();};
-      settings.append(remove);
     }
     columns.append(canvasSection,settings);main.append(columns);this.refreshHits();
   }

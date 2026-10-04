@@ -5,6 +5,7 @@ import ipaddress
 import re
 
 from .const import DEFAULT_LAYOUT, HEIGHT, PROTOCOL, WIDTH
+from .actions import BUTTON_SERVICES, SWITCH_SERVICES
 
 COLOR = re.compile(r"#[0-9a-fA-F]{6}\Z")
 ENTITY = re.compile(r"[a-z_][a-z0-9_]*\.[a-z0-9_]+\Z")
@@ -51,14 +52,19 @@ def validate_layout(layout):
     for widget in widgets:
         if not isinstance(widget, dict) or set(widget) != keys:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor"):
-            raise ValueError("Der MVP unterstuetzt Text und Sensorwerte")
+        if widget["kind"] not in ("text", "sensor", "button", "switch"):
+            raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] == "sensor" and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] != "text" and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
+        domain = widget["entity_id"].split(".", 1)[0]
+        if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
+            raise ValueError("Button: button, input_button oder script auswaehlen")
+        if widget["kind"] == "switch" and domain not in SWITCH_SERVICES:
+            raise ValueError("Switch: switch oder input_boolean auswaehlen")
         for key, minimum, maximum in (
             ("x", 0, WIDTH - 1), ("y", 0, HEIGHT - 1),
             ("width", 1, WIDTH), ("height", 1, HEIGHT), ("size", 12, 64),
