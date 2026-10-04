@@ -345,6 +345,23 @@ export class DeskDisplayPanel extends HTMLElement {
     valueBox.hidden=condition.op==='missing';
     select.value=condition.op;select.onchange=()=>{condition.op=select.value;valueBox.hidden=condition.op==='missing';update();};
   }
+  editDoorbellLayout() {
+    const base={background:this.layout.theme==='material_light'?'#fef7ff':'#141218',theme:this.layout.theme??'material_dark',widgets:[
+      {kind:'text',text:'Jemand an der Tür',entity_id:'',x:24,y:20,width:432,height:28,size:20,color:'#ffffff',role:'title'},
+      {kind:'media',text:'Kamera',entity_id:'',x:24,y:52,width:432,height:this.doorbell.open_enabled?180:240,size:20,color:'#ffffff',source:this.doorbell.camera,fps:1}
+    ]};
+    if(this.doorbell.open_enabled)base.widgets.push({kind:'button',text:this.doorbell.open_label,entity_id:this.doorbell.open_entity_id,x:24,y:244,width:432,height:48,size:24,color:'#ffffff',role:'door_open'});
+    if(!this.doorbell.camera || (this.doorbell.open_enabled && !this.doorbell.open_entity_id)){this.status('Zuerst Kamera und optionalen Türöffner auswählen.');return;}
+    const dialog=this.element('dialog',{class:'overlay-designer','aria-label':'Klingel-Layout bearbeiten'});
+    const close=this.element('button',{class:'secondary'},'Zurück ohne Übernehmen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);
+    const child=this.element('desk-display-panel');child.isOverlayDesigner=true;child.loaded=true;child.devices=[{...this.devices[this.selected],layout:structuredClone(this.doorbell.layout??base),ota_update:false,backups:[]}];child.layout=child.devices[0].layout;child.loadDoorbell();
+    child._hass={states:this._hass.states,callWS:async message=>{
+      if(message.type==='desk_display/save'){this.doorbell.layout=structuredClone(message.layout);dialog.close();dialog.remove();this.draw();this.preview();this.status('Klingel-Layout übernommen. Zum Gerät übertragen: speichern.');return {sent:false,backups:[]};}
+      if(message.type==='desk_display/preview')return this._hass.callWS({...message,layout:this.documentLayout(),doorbell:{...this.doorbell,layout:message.layout},overlay:true,page:this.pageIndex??0});
+      return this._hass.callWS(message);
+    }};
+    child.draw();dialog.append(child);this.shadowRoot.append(dialog);dialog.showModal();child.preview();
+  }
   openElementSettings(index) {
     this.selectWidget(index);this.groupsOpen.content=true;this.groupsOpen.arrange=false;this.draw();this.switchInspectorTab('element',true);
     this.shadowRoot.querySelector('[data-pane=element] input[maxlength="80"]')?.focus();
@@ -549,7 +566,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.shadowRoot.append(this.element('style', {}, `
       :host{display:block;color:var(--primary-text-color,#172033);font:15px system-ui}
       *{box-sizing:border-box}[hidden]{display:none!important}
-      main{padding:16px;max-width:1500px;margin:auto;height:calc(100dvh - 56px);min-height:380px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+      .overlay-designer{width:calc(100vw - 24px);max-width:1500px;height:calc(100dvh - 24px);padding:0;border-radius:16px;border:1px solid #777}
+      main{padding:16px;max-width:1500px;margin:auto;height:calc(100dvh - ${this.isOverlayDesigner?110:56}px);min-height:380px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
       .workspace-header{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;flex:none}.workspace-header h1{font-size:22px;margin:0;white-space:nowrap}
       #device-status{flex-basis:100%;font-size:12px;margin:0}
       .workspace-header select{min-width:0;flex:1;margin:0}
@@ -670,6 +688,8 @@ export class DeskDisplayPanel extends HTMLElement {
     };
     test.onclick=()=>testOverlay(true);close.onclick=()=>testOverlay(false);
     bellSettings.append(test,close,this.element('small',{},'Vor dem Gerätetest aktivieren und speichern. Die Vorschau öffnet keine Tür. Binary-Sensoren lösen beim Wechsel Aus → Ein aus; Ereignis-Entitäten bei einem neuen Zeitstempel.'));
+    const editBell=this.element('button',{class:'secondary'},'Klingel-Layout bearbeiten');editBell.onclick=()=>this.editDoorbellLayout();bellSettings.append(editBell,this.element('small',{},'Kamera, Titel, Türstatus und zusätzliche Aktionen frei anordnen. Im Layouteditor unter Inhalt die Klingelrolle festlegen. Änderungen werden erst mit Speichern & übertragen aktiv.'));
+    const resetBell=this.element('button',{class:'secondary'},'Standard-Klingel-Layout wiederherstellen');resetBell.onclick=()=>{delete this.doorbell.layout;this.draw();this.schedulePreview();};bellSettings.append(resetBell);
     bellSection.append(bellSettings);
     const columns = this.element('div', {class: 'columns'});
     const canvasSection = this.element('section',{class:'canvas'});
@@ -678,6 +698,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const button=this.element('button',{'aria-pressed':String(index===(this.pageIndex??0))},page.page_name??'Übersicht');button.onclick=()=>this.selectPage(index);pageStrip.append(button);
     });
     const managePages=this.element('button',{class:'secondary'},'Seiten verwalten');managePages.onclick=()=>this.switchInspectorTab('pages',true);pageStrip.append(managePages);canvasSection.append(pageStrip);
+    if(this.isOverlayDesigner)pageStrip.hidden=true;
     const well=this.element('div',{class:'preview-well'});
     const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
     stage.dataset.snap='true';
@@ -698,7 +719,7 @@ export class DeskDisplayPanel extends HTMLElement {
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 10;
     if(this.layout.widgets.length>=10)add.title='Maximal zehn Elemente pro Seite. Entferne ein Element oder füge eine weitere Seite hinzu.';
     add.onclick = () => this.showAddChooser();
-    const save = this.element('button', {id:'save-layout'}, 'Speichern & übertragen');
+    const save = this.element('button', {id:'save-layout'}, this.isOverlayDesigner?'Klingel-Layout übernehmen':'Speichern & übertragen');
     save.onclick = () => this.saveLayout();
     const remove = this.element('button', {class:'secondary'}, 'Element entfernen');
     remove.disabled = this.overlayPreview || !this.layout.widgets.length;
@@ -844,12 +865,12 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       kind.value = widget.kind;
       kind.onchange = () => {
-        widget.kind = kind.value;delete widget.config;
+        widget.kind = kind.value;delete widget.config;delete widget.role;
         if (widget.text==='Neuer Text') widget.text=({image:'Bild',clock:'Uhrzeit',media:'Video',sensor:'HA-Wert',button:'Button',switch:'Switch',text:'Neuer Text'})[widget.kind];
         if (widget.kind!=='sensor') delete widget.value;
         if (widget.kind!=='clock') delete widget.clock_format;
-        if (!['image','icon'].includes(widget.kind)) {delete widget.image;delete widget.fit;}
-        if(widget.kind!=='icon')delete widget.icon;
+        if (!['image','icon','chip'].includes(widget.kind)) {delete widget.image;delete widget.fit;}
+        if(!['icon','chip'].includes(widget.kind))delete widget.icon;
         if(widget.kind!=='line')delete widget.line_width;
         if (['text','image','clock','icon','line'].includes(widget.kind)) widget.entity_id='';
         if (widget.kind === 'media') {
@@ -865,6 +886,9 @@ export class DeskDisplayPanel extends HTMLElement {
         this.groupsOpen.content=true;this.draw(); this.schedulePreview();
       };
       const kindLabel=this.element('label',{},'Elementtyp');kindLabel.append(kind);widgetPanel.append(kindLabel);
+      if(this.isOverlayDesigner && ['text','button'].includes(widget.kind)) {
+        const role=this.element('select',{'aria-label':'Klingelrolle'});for(const [value,label] of [['','Zusätzliches Element'],...(widget.kind==='button'?[['door_open','Türöffner']]:[['title','Titel'],['door_status','Türstatus']])])role.append(this.element('option',{value},label));role.value=widget.role??'';role.onchange=()=>{if(role.value)widget.role=role.value;else delete widget.role;this.schedulePreview();};settings.append(role);
+      }
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
       if(widget.kind==='energy') {
         const config=widget.config??={};
@@ -884,6 +908,7 @@ export class DeskDisplayPanel extends HTMLElement {
           this.field(settings,'Einheit',config.unit??'',v=>config.unit=v,{maxlength:16});
           settings.append(this.element('small',{},'Verwendet HA-Recorder. Historie wird einmal pro Minute geladen, maximal 120 Punkte.'));
         } else if(widget.kind==='chip') {
+          const icon=this.element('ha-icon-picker');icon.hass=this._hass;icon.label='Status-Icon (optional)';icon.value=widget.icon??'';icon.addEventListener('value-changed',event=>{if(event.detail.value)this.updateIcon(widget,event.detail.value);else{delete widget.icon;delete widget.image;this.schedulePreview();}});settings.append(icon);
           for(const [key,label,def] of [['active','Aktiver HA-Zustand','on'],['on_text','Text bei aktiv','Aktiv'],['off_text','Text bei inaktiv','Inaktiv']])this.field(settings,label,config[key]??def,v=>config[key]=v,{maxlength:40});
         } else {
           for(const [key,label,def] of [['min','Minimum',0],['max','Maximum',100]])this.field(settings,label,config[key]??def,v=>config[key]=Number(v),{type:'number'});
@@ -1031,6 +1056,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const inspector=this.element('section',{class:'inspector'});
     const tabs=this.element('div',{class:'inspector-tabs',role:'tablist','aria-label':'Einstellungen'});
     for (const [key,title] of [['element','Element'],['pages','Seiten'],['display','Display'],['doorbell','Klingel']]) {
+      if(this.isOverlayDesigner && ['pages','doorbell'].includes(key))continue;
       const tab=this.element('button',{'data-tab':key,role:'tab','aria-controls':'pane-'+key},title);
       tab.onclick=()=>this.switchInspectorTab(key,true);tabs.append(tab);
       settings.querySelector('[data-pane='+key+']').id='pane-'+key;

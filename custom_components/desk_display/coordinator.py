@@ -346,9 +346,15 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
-            active=[n for n in self.notifications if n[2]>monotonic()]
+            states["__media_age__"]={}
+            if media:
+                for session in (media,getattr(media,"preloader",None)):
+                    if session and session.signature:
+                        stamp=max(session.updated_at or 0,session.snapshot_at or 0)
+                        if stamp:states["__media_age__"][session.signature[:3]]=monotonic()-stamp
+            active=[n for n in getattr(self,"notifications",[]) if n[2]>monotonic()]
             if active and not self.doorbell_active:states["__notification__"]=active[0][0]
-            states["__feedback__"]={entity:value[0] for entity,value in self.action_feedback.items() if monotonic()<value[1]}
+            states["__feedback__"]={entity:value[0] for entity,value in getattr(self,"action_feedback",{}).items() if monotonic()<value[1]}
             from .history import augment_states
             await augment_states(self.hass,layout,states)
             jpeg_video = info.get('jpeg_regions') and video_widget(layout) is not None

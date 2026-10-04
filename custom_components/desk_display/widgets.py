@@ -120,6 +120,7 @@ def tile(widget,states,theme):
         if widget.get('image'):
             from .pictures import picture_tile
             icon=picture_tile(widget['image'],min(24,height),min(24,height),'contain')
+            mask=icon.getchannel('A');icon=Image.new('RGBA',icon.size,color);icon.putalpha(mask)
             image.alpha_composite(icon,(max(0,width-icon.width-6),max(0,(height-icon.height)//2)))
         return image
     minimum=float(config.get('min',0));maximum=float(config.get('max',100))

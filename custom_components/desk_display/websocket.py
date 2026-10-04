@@ -65,6 +65,7 @@ async def preview(hass, connection, msg):
     except ValueError as error:
         connection.send_error(msg['id'],'invalid_simulation',str(error));return
     frames = {}
+    states["__media_age__"]={}
     statuses = []
     for coordinator in hass.data.get(DOMAIN, {}).values():
         if (worker := getattr(coordinator, 'media', None)):
@@ -73,6 +74,9 @@ async def preview(hass, connection, msg):
             for session in (worker,getattr(worker,'preloader',None)):
                 if session is None:
                     continue
+                if session.signature:
+                    stamp=max(session.updated_at or 0,session.snapshot_at or 0)
+                    if stamp:states["__media_age__"][session.signature[:3]]=__import__("time").monotonic()-stamp
                 for index, widget in enumerate(layout.get('overlay',layout)['widgets']):
                     if widget['kind'] == 'media' and session.signature and session.signature[:3] == (
                         widget['source'], widget['width'], widget['height']

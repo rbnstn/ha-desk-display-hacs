@@ -363,3 +363,7 @@ Neue HA-Aktionen desk_display.notify und desk_display.show_page mit Geräteauswa
 ## Version 0.21.0: Direktbearbeitung und globale Designs
 
 Doppelklick auf ein Element öffnet seine Inhalte; Rechtsklick bietet Bearbeiten, Duplizieren, Sperren, Ausblenden und Löschen. Globale Designvorgaben für alle Seiten mit individuellen Ausnahmen. Wiederverwendbare Design-Dateien lassen sich exportieren und mit serverseitiger Validierung importieren.
+
+## Version 0.22.0: Freies Klingel-Layout und Kameraalter
+
+Eigener Layouteditor für Kamera, Titel, Türstatus und zusätzliche Klingelaktionen. Übernehmen ändert zunächst nur den Entwurf. Bei Streamausfall bleibt das letzte Kamerabild mit sichtbarer Altersmarkierung erhalten. Status-Chips erhalten optional ein HA-Icon. Alle Erweiterungen aus 0.17 bis 0.21 sind enthalten; Firmware 0.7.0 wird nur für Langdruck, unmittelbares Touch-Feedback und Slider-Ziehen benötigt.

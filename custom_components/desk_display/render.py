@@ -56,12 +56,20 @@ def render_image(layout, states, media=None):
         draw.text((inset, inset), text[:160], font=ImageFont.load_default(size=widget["size"]),
                   fill=widget["color"], anchor="lt")
         image.paste(tile, (widget["x"], widget["y"]), tile)
+    for widget in layout['widgets']:
+        if widget['kind']=='media':
+            age=states.get('__media_age__',{}).get((widget['source'],widget['width'],widget['height']))
+            if age is not None and age>5:
+                draw=ImageDraw.Draw(image);x,y=widget['x'],widget['y'];bottom=y+widget['height']-1
+                draw.rectangle((x,max(y,bottom-18),x+widget['width']-1,bottom),fill='#663c00')
+                draw.text((x+3,max(y,bottom-16)),f'Stand vor {int(age)} s',font=ImageFont.load_default(size=12),fill='#ffffff')
     if states.get('__notification__') and 'overlay' not in layout:
         draw=ImageDraw.Draw(image);draw.rectangle((0,0,479,31),fill='#6750a4');draw.text((8,7),states['__notification__'][:70],font=ImageFont.load_default(size=14),fill='#ffffff')
     if 'overlay' in layout:
         image=Image.blend(image,Image.new('RGB',image.size,'black'),.6)
         modal=render_image(layout['overlay'],states,media)
-        image.paste(modal.crop((16,12,464,304)),(16,12))
+        if layout['overlay'].get('fullscreen'):image=modal
+        else:image.paste(modal.crop((16,12,464,304)),(16,12))
     return image
 
 

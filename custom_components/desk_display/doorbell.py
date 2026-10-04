@@ -6,7 +6,7 @@ from .models import ENTITY, get_layout, validate_layout
 from .actions import BUTTON_SERVICES
 
 DEFAULT_DOORBELL={'enabled':False,'entity_id':'','camera':'','open_entity_id':'','duration':30,'preload':False,
-                 'post_open_duration':45,'door_state_entity_id':'','open_enabled':True,'open_label':'Tuer oeffnen'}
+                 'post_open_duration':45,'door_state_entity_id':'','open_enabled':True,'open_label':'Tuer oeffnen','layout':None}
 
 
 def validate_doorbell(value):
@@ -30,6 +30,13 @@ def validate_doorbell(value):
             raise ValueError('Ungueltige Entitaet fuer '+key)
         if value['enabled'] and not entity and key!='door_state_entity_id' and (key!='open_entity_id' or value['open_enabled']):
             raise ValueError('Bitte Klingel, Kamera und Tuer-Button auswaehlen')
+    if value['layout'] is not None:
+        layout=validate_layout(value['layout'])
+        if set(layout)-{'background','widgets','theme','debug','design'}:raise ValueError('Klingel-Layout enthaelt keine Seiten oder weiteren Overlays')
+        if sum(w['kind']=='media' for w in layout['widgets'])!=1:raise ValueError('Klingel-Layout benoetigt genau eine Kamera')
+        for role in ('title','door_status','door_open'):
+            if sum(w.get('role')==role for w in layout['widgets'])>1:raise ValueError('Klingelrolle darf nur einmal vorkommen')
+        value['layout']=layout
     return copy.deepcopy(value)
 
 
@@ -54,6 +61,14 @@ def is_ring(config,entity_id,before,after):
 
 
 def overlay_layout(config, theme='classic'):
+    if config.get('layout'):
+        layout=copy.deepcopy(config['layout'])
+        layout['widgets']=[w for w in layout['widgets'] if config.get('open_enabled',True) or w.get('role')!='door_open']
+        for widget in layout['widgets']:
+            if widget['kind']=='media':widget.update(source=config['camera'],fps=1)
+            if widget.get('role')=='door_open':widget.update(entity_id=config['open_entity_id'],text=config['open_label'])
+        layout['fullscreen']=True
+        return validate_layout(layout)
     def widget(kind,text,entity,x,y,width,height,size=20):
         return dict(kind=kind,text=text,entity_id=entity,x=x,y=y,width=width,height=height,size=size,color='#ffffff')
     has_button=config.get('open_enabled',True)
@@ -63,6 +78,8 @@ def overlay_layout(config, theme='classic'):
         widget('text','Jemand an der Tuer','',24,20,432,28),camera]}
     if has_button:
         layout['widgets'].append(widget('button',config.get('open_label','Tuer oeffnen'),config['open_entity_id'],24,244,432,48,24))
+        layout['widgets'][-1]['role']='door_open'
+    layout['widgets'][0]['role']='title'
     if theme in ('material_dark', 'material_light'):
         layout['theme'] = theme
         layout['background'] = '#fef7ff' if theme == 'material_light' else '#141218'
@@ -78,14 +95,15 @@ def current_layout(coordinator):
     if getattr(coordinator,'doorbell_active',False) and config['enabled']:
         layout['overlay']=overlay_layout(config, layout.get('theme', 'classic'))
         status=getattr(coordinator,'doorbell_feedback','')
-        button=next((w for w in layout['overlay']['widgets'] if w['kind']=='button'),None)
+        button=next((w for w in layout['overlay']['widgets'] if w.get('role')=='door_open'),None)
         labels={'pending':('Wird geoeffnet ...','#ffd166'),
                 'sent':('Befehl ausgefuehrt','#57d9b0'),
                 'error':('Fehler - erneut tippen','#ff8080'),
                 'uncertain':('Ergebnis unklar','#ffd166')}
         if button and status in labels:
             button['text'],button['color']=labels[status]
-        header=layout['overlay']['widgets'][0]
+        header=next((w for w in layout['overlay']['widgets'] if w.get('role')=='door_status'),None)
+        if header is None:header=next((w for w in layout['overlay']['widgets'] if w.get('role')=='title'),layout['overlay']['widgets'][0])
         states=getattr(getattr(coordinator,'hass',None),'states',None)
         contact=states.get(config['door_state_entity_id']) if states and config['door_state_entity_id'] else None
         lock=states.get(config['open_entity_id']) if states and config['open_enabled'] and config['open_entity_id'].startswith('lock.') else None

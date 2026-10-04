@@ -53,7 +53,7 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -62,7 +62,9 @@ def validate_layout(layout, nested=False):
         raise ValueError("Maximal zehn Elemente")
     if type(layout.get("debug", False)) is not bool:
         raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
+    if type(layout.get("fullscreen",False)) is not bool:raise ValueError("Ungueltiger Overlaymodus")
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
+    if 'fullscreen' in layout:result['fullscreen']=layout['fullscreen']
     if 'device' in layout:
         from .device_settings import validate_settings
         if nested:raise ValueError('Geraeteeinstellungen nur auf der Hauptseite')
@@ -99,7 +101,7 @@ def validate_layout(layout, nested=False):
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden", "inherit_design"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden", "inherit_design", "role"}:
             raise ValueError("Ungueltiges Element")
         if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy", "slider", "player"):
             raise ValueError("Unbekannter Elementtyp")
@@ -130,6 +132,9 @@ def validate_layout(layout, nested=False):
         validate_config(widget)
         for flag in ("locked","hidden","inherit_design"):
             if type(widget.get(flag,False)) is not bool:raise ValueError("Ungueltiger Elementstatus")
+        if "role" in widget and widget["role"] not in ("title","door_status","door_open"):raise ValueError("Ungueltige Klingelrolle")
+        if widget.get("role")=="door_open" and widget["kind"]!="button":raise ValueError("Tueroeffner muss Button sein")
+        if widget.get("role") in ("title","door_status") and widget["kind"]!="text":raise ValueError("Titel und Tuerstatus muessen Text sein")
         normalized = dict(widget)
         if widget['kind']=='navigation':
             if type(widget.get('target')) is not int or not 0<=widget['target']<=3:raise ValueError('Ungueltige Zielseite')
@@ -162,7 +167,7 @@ def validate_layout(layout, nested=False):
             normalized['clock_format']=widget.get('clock_format','time')
         else:
             normalized.pop('clock_format',None)
-        if widget['kind'] in ('image','icon'):
+        if widget['kind'] in ('image','icon','chip'):
             from .pictures import image_bytes
             if widget['kind']=='image' or widget.get('image'):image_bytes(widget.get('image',''))
             if widget.get('fit','contain') not in ('contain','cover'):
@@ -171,7 +176,7 @@ def validate_layout(layout, nested=False):
         else:
             normalized.pop('image',None)
             normalized.pop('fit',None)
-        if widget['kind']=='icon':
+        if widget['kind'] in ('icon','chip') and ('icon' in widget or widget['kind']=='icon'):
             name=widget.get('icon','mdi:home')
             if not isinstance(name,str) or len(name)>100 or not re.fullmatch(r'[a-z0-9_-]+:[a-z0-9_-]+',name):raise ValueError('Ungueltiges HA-Icon')
             normalized['icon']=name

@@ -76,12 +76,9 @@ class MediaWorker:
     @property
     def frames(self):
         if self.owner is not None:
-            # Never use an old standby image as the first doorbell frame.
-            if self._frames and self.updated_at is not None and monotonic()-self.updated_at <= 2.5:
-                return self._frames
-            if self.signature and self.snapshot is not None and monotonic()-self.snapshot_at <= 5:
+            if self.signature and self.snapshot is not None and (not self._frames or (self.snapshot_at or 0)>(self.updated_at or 0)):
                 return {self.signature[:3]:self.snapshot}
-            return {}
+            return self._frames
         if self.preloader is None:
             return self._frames
         return {**self._frames, **self.preloader.frames}
@@ -94,7 +91,7 @@ class MediaWorker:
             return {'state':'disabled'}
         if self.frames:
             stream = self.updated_at is not None and monotonic()-self.updated_at <= 2.5
-            age = monotonic()-(self.updated_at if stream else self.snapshot_at)
+            age = monotonic()-max(self.updated_at or 0,self.snapshot_at or 0)
             return {'state':'ready','mode':'stream' if stream else 'snapshot','age':round(age,1)}
         return {'state':'unavailable' if self.status=='unavailable' else 'connecting',
                 'message':MESSAGES.get(self.error_code,'Noch kein aktuelles Kamerabild vorhanden.')}
@@ -256,8 +253,7 @@ class MediaWorker:
                 self.status = "unavailable"
                 self.error_code = err.code if isinstance(err, VideoError) else (
                     "timeout" if isinstance(err, TimeoutError) else "resolve_failed" if stage == "resolve" else "decoder_failed")
-                self._frames.clear()
-                self.updated_at = None
+                # Retain the last frame and timestamp; renderer visibly marks its age.
                 LOGGER.warning("Desk Display video unavailable (%s); retrying in 10 seconds", self.error_code)
             finally:
                 if decoder_task is not None:
