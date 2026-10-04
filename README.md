@@ -387,3 +387,7 @@ Zoom mit Gesamtansicht, Kopieren und Einfügen über Strg+C/Strg+V zwischen Seit
 ## Version 0.25.0: Kosten, Wetter und Countdown
 
 Neue Elemente für Energieverbrauch × Strompreis, momentane Kostenrate, HA-Wetter mit begrenzter Vorhersage und HA-Timer/Restzeit/Termine. Kosten erkennen Wh/kWh beziehungsweise W/kW und unterstützen eine Preisentität; Timer berücksichtigen Pausen und HA-Zeitzone.
+
+## Version 0.26.0: Detailansicht und Wischgesten
+
+Optionale HA-Wert-Detailansicht mit Recorder-Verlauf, automatischer Rückkehr und Schließen. Wischgesten auf freien Flächen wechseln Seiten, Navigationsleiste optional ausblendbar. Firmware 0.8.0 für Wischen; horizontales Ziehen von Slidern bleibt unterstützt.

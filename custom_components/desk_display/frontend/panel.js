@@ -341,7 +341,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
-    const bottom=(this.documentLayout().pages?.length??0)?276:320;
+    const bottom=(this.documentLayout().pages?.length??0) && this.documentLayout().navigation!==false?276:320;
     let position={x:24,y:Math.floor(Math.min(180,bottom-height)/8)*8};
     outer:for(let y=16;y+height<=bottom;y+=8)for(let x=16;x+width<=480;x+=8){
       if(this.layout.widgets.every(w=>x+width<=w.x || x>=w.x+w.width || y+height<=w.y || y>=w.y+w.height)){position={x,y};break outer;}
@@ -883,6 +883,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const removePage=this.element('button',{class:'secondary'},'Diese Seite entfernen');removePage.disabled=!this.pageIndex;
     removePage.onclick=()=>{const root=this.documentLayout(),removed=this.pageIndex;root.pages.splice(removed-1,1);root.page_rules=(root.page_rules??[]).filter(rule=>rule.page!==removed).map(rule=>({...rule,page:rule.page>removed?rule.page-1:rule.page}));this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
     pagesPanel.append(this.element('h2',{},'Seiten bei HA-Ereignissen anzeigen'));
+    for(const [flag,title] of [['swipe','Wischen auf freier Fläche zum Seitenwechsel (Firmware 0.8.0)'],['navigation','Seitennavigation unten anzeigen']]){const input=this.element('input',{type:'checkbox','aria-label':title});input.checked=this.documentLayout()[flag]??(flag==='navigation');input.onchange=()=>{this.documentLayout()[flag]=input.checked;this.draw();this.schedulePreview();};const label=this.element('label');label.append(input,document.createTextNode(title));pagesPanel.append(label);}
     const rules=this.documentLayout().page_rules??[];
     for(const [index,rule] of rules.entries()) {
       const card=this.element('div',{class:'rule-card'});this.conditionFields(card,rule.when);
@@ -1116,6 +1117,7 @@ export class DeskDisplayPanel extends HTMLElement {
         this.field(settings,'Gesamtdauer für Fortschritt (Sekunden, 0 = automatisch)',config.total??0,v=>config.total=Number(v),{type:'number',min:0,max:31536000,step:1});
         settings.append(this.element('small',{},'HA-Timer berücksichtigen Pause und Endzeit. Zeitangaben ohne Zeitzone verwenden die HA-Zeitzone. Restzeit-Sensoren werden nur angezeigt, nicht gestartet.'));
       }
+      if(widget.kind==='sensor'){const config=widget.config??={};const input=this.element('input',{type:'checkbox','aria-label':'Detailansicht beim Antippen'});input.checked=!!config.detail_enabled;input.onchange=()=>{config.detail_enabled=input.checked;this.schedulePreview();};const label=this.element('label');label.append(input,document.createTextNode('Detailansicht beim Antippen'));settings.append(label);this.field(settings,'Detailverlauf (Minuten)',config.detail_minutes??60,v=>config.detail_minutes=Number(v),{type:'number',min:15,max:1440});settings.append(this.element('small',{},'Öffnet den Wert und Recorder-Verlauf für 30 Sekunden. Schließen führt zur aktuellen Seite zurück; Klingeln hat Vorrang.'));}
       this.wrapFields(settings,contentStart,'content','Inhalt & Daten',true);
       const ruleStart=settings.childNodes.length;
       const visible=this.element('input',{type:'checkbox','aria-label':'Sichtbarkeitsbedingung'});visible.checked=!!widget.visible_when;

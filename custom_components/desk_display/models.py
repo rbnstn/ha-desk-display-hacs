@@ -53,10 +53,12 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen", "swipe", "navigation"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
+    for flag in ('swipe','navigation'):
+        if type(layout.get(flag,False)) is not bool:raise ValueError('Ungültige Seitennavigation')
     widgets = layout["widgets"]
     if not isinstance(widgets, list) or len(widgets) > 14 or sum(isinstance(w,dict) and w.get('kind')!='navigation' for w in widgets)>10:
         raise ValueError("Maximal zehn Elemente")
@@ -64,6 +66,8 @@ def validate_layout(layout, nested=False):
         raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
     if type(layout.get("fullscreen",False)) is not bool:raise ValueError("Ungueltiger Overlaymodus")
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
+    for flag in ('swipe','navigation'):
+        if flag in layout:result[flag]=layout[flag]
     if 'fullscreen' in layout:result['fullscreen']=layout['fullscreen']
     if 'device' in layout:
         from .device_settings import validate_settings

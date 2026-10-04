@@ -19,8 +19,11 @@ def validate_config(widget):
     if kind in ('cost','weather','countdown'):
         from .data_widgets import validate
         validate(widget);return
-    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
+    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'sensor':{'detail_enabled','detail_minutes'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
     if set(config)-allowed:raise ValueError('Unbekannte Elementeinstellung')
+    if kind=='sensor':
+        if type(config.get('detail_enabled',False)) is not bool:raise ValueError('Ungültige Detailansicht')
+        if type(config.get('detail_minutes',60)) is not int or not 15<=config.get('detail_minutes',60)<=1440:raise ValueError('Detailverlauf: 15 bis 1440 Minuten')
     if kind in ('progress','gauge'):
         for key,default in [('min',0),('max',100)]:
             if number(config.get(key,default)) is None:raise ValueError('Endliche Bereichsgrenzen angeben')

@@ -115,6 +115,9 @@ def current_layout(coordinator):
                             'unlocked':'Schloss entriegelt','locked':'Schloss verriegelt'}[lock.state]
         elif status=='sent':
             header['text']='Oeffnungsbefehl ausgefuehrt'
+    if not getattr(coordinator,'doorbell_active',False) and getattr(coordinator,'detail_widget',None):
+        from .detail import detail_layout
+        layout['overlay']=detail_layout(coordinator.detail_widget,getattr(coordinator,'page_index',0),layout.get('theme','material_dark'))
     from .rules import entities, resolve_layout
     hass=getattr(coordinator,'hass',None)
     if hass:

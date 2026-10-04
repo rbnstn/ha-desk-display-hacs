@@ -13,12 +13,14 @@ def widget_at(layout,x,y):
 
 def action_at(layout, x, y,gesture='tap'):
     """The topmost rectangle blocks widgets underneath, including plain text."""
+    if gesture in ('left','right'):return None
     if 'overlay' in layout:
         return action_at(layout['overlay'],x,y,gesture)
     for widget in reversed(layout["widgets"]):
         if widget["x"] <= x < widget["x"] + widget["width"] and (
             widget["y"] <= y < widget["y"] + widget["height"]
         ):
+            if widget['kind']=='sensor' and gesture=='tap' and widget.get('config',{}).get('detail_enabled'):return ('desk_display','detail',widget['entity_id'])
             if widget['kind']=='navigation':return ('desk_display','page',str(widget['target']))
             if widget['kind']=='button' and gesture=='hold':
                 entity=widget.get('config',{}).get('hold_entity_id','')
@@ -50,7 +52,7 @@ def validate_touch(event):
         if type(event[key]) is not int or not 0 <= event[key] < bound:
             raise ValueError("Invalid touch position")
     if 'value_x' in event and (type(event['value_x']) is not int or not 0<=event['value_x']<480):raise ValueError('Invalid slider touch position')
-    if event.get('gesture','tap') not in ('tap','hold'):raise ValueError('Invalid touch gesture')
+    if event.get('gesture','tap') not in ('tap','hold','left','right'):raise ValueError('Invalid touch gesture')
     return event
 
 

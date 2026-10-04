@@ -93,6 +93,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.confirm_action=None
         self.notifications=[]
         self.temporary_page=None
+        self.detail_widget=None;self.detail_deadline=0
 
     @callback
     def async_start(self):
@@ -125,12 +126,14 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
 
     @callback
     def _rotate_page(self,_now=None):
+        if self.detail_widget and monotonic()>self.detail_deadline:self.detail_widget=None;self.hass.async_create_task(self.async_refresh())
         layout=get_layout(self.entry.options);seconds=layout.get('rotation',0)
         if any(w['kind']=='countdown' for w in current_layout(self).get('widgets',[])) and not self.touch_stopped:self.hass.async_create_task(self.async_request_refresh())
         if self.temporary_page:
             if self.doorbell_active:return
             if monotonic()<self.temporary_page[1]:return
             self.page_index=min(self.temporary_page[0],len(layout.get('pages',[])));self.temporary_page=None;self.page_deadline=0;self.hass.async_create_task(self.async_refresh())
+        if self.detail_widget:return
         if not seconds or not layout.get('pages') or self.doorbell_active:
             self.page_deadline=0;return
         if not self.page_deadline:self.page_deadline=monotonic()+seconds
@@ -199,7 +202,14 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 if event["id"] != self.last_touch_id and event["revision"] == self.revision and (
                     self.last_layout == current_layout(self)
                 ):
-                    action = action_at(self.last_layout, event["x"], event["y"],event.get("gesture","tap"))
+                    gesture=event.get('gesture','tap')
+                    saved=get_layout(self.entry.options)
+                    if gesture in ('left','right') and saved.get('swipe') and 'overlay' not in self.last_layout and widget_at(self.last_layout,event['x'],event['y']) is None:
+                        count=1+len(saved.get('pages',[]));action=('desk_display','page',str((self.page_index+(1 if gesture=='left' else -1))%count))
+                    else:
+                        touched=widget_at(self.last_layout,event['x'],event['y'])
+                        if gesture in ('left','right') and touched and touched['kind']=='slider':gesture='tap'
+                        action = action_at(self.last_layout, event["x"], event["y"],gesture)
                     if (self.data or {}).get('debug_overlay') and self.last_layout.get('debug') and (
                         event['x'] >= 256 and event['y'] >= 300
                     ):
@@ -209,7 +219,12 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 self.last_touch_id = event["id"]
             if action is not None and not self.touch_stopped:
                 domain, service, entity_id = action
+                if domain=='desk_display' and service=='detail':
+                    import copy
+                    self.detail_widget=copy.deepcopy(widget_at(self.last_layout,event['x'],event['y']));self.detail_deadline=monotonic()+30
+                    await self.async_refresh();return
                 if domain=='desk_display' and service=='page':
+                    self.detail_widget=None
                     self.page_index=int(entity_id);self.page_deadline=0;self.temporary_page=None
                     await self.async_refresh();return
                 widget=widget_at(self.last_layout,event["x"],event["y"])
