@@ -52,6 +52,27 @@ export class DeskDisplayPanel extends HTMLElement {
     }
   }
 
+
+  copyElements() {
+    if(this.overlayPreview)return;this.elementClipboard=structuredClone(this.selectedWidgets());this.status('Elemente kopiert. Auf einer Seite mit Strg+V einfügen.');
+  }
+  pasteElements() {
+    if(this.overlayPreview || !this.elementClipboard?.length)return;
+    const copied=structuredClone(this.elementClipboard);
+    if(this.layout.widgets.length+copied.length>10 || [...this.layout.widgets,...copied].filter(w=>w.kind==='media').length>1){this.status('Einfügen passt nicht: höchstens zehn Elemente und ein Stream.');return;}
+    const groups=new Map();for(const w of copied){w.x=Math.min(480-w.width,Math.round((w.x+8)/8)*8);w.y=Math.min(320-w.height,Math.round((w.y+8)/8)*8);w.locked=false;if(w.group){if(!groups.has(w.group))groups.set(w.group,'paste'+Date.now().toString(36)+groups.size);w.group=groups.get(w.group);}}
+    const start=this.layout.widgets.length;this.layout.widgets.push(...copied);this.widgetIndex=start;this.selection=new Set(copied.map((_,i)=>start+i));this.draw();this.schedulePreview();
+  }
+  setZoom(value) {this.zoom=Math.max(1,Math.min(3,value));this.draw();}
+  showDistances(stage,widget) {
+    stage.querySelectorAll('.measure').forEach(e=>e.remove());
+    const distances=[['Links',widget.x,widget.x/2,widget.y],['Oben',widget.y,widget.x,widget.y/2],['Rechts',480-widget.x-widget.width,widget.x+widget.width+(480-widget.x-widget.width)/2,widget.y],['Unten',320-widget.y-widget.height,widget.x,widget.y+widget.height+(320-widget.y-widget.height)/2]];
+    for(const other of this.layout.widgets.filter(w=>!this.selectedWidgets().includes(w))) {
+      if(other.y<widget.y+widget.height && other.y+other.height>widget.y){const gap=other.x>=widget.x+widget.width?other.x-widget.x-widget.width:widget.x>=other.x+other.width?widget.x-other.x-other.width:-1;if(gap>=0)distances.push(['Abstand',gap,Math.min(widget.x+widget.width,other.x+other.width)+gap/2,widget.y+widget.height/2]);}
+      if(other.x<widget.x+widget.width && other.x+other.width>widget.x){const gap=other.y>=widget.y+widget.height?other.y-widget.y-widget.height:widget.y>=other.y+other.height?widget.y-other.y-other.height:-1;if(gap>=0)distances.push(['Abstand',gap,widget.x+widget.width/2,Math.min(widget.y+widget.height,other.y+other.height)+gap/2]);}
+    }
+    for(const [label,pixels,x,y] of distances.slice(0,8)){const badge=this.element('span',{class:'measure'},`${label}: ${pixels} px`);Object.assign(badge.style,{left:`${Math.max(0,Math.min(420,x))/4.8}%`,top:`${Math.max(0,Math.min(300,y))/3.2}%`});stage.append(badge);}
+  }
   draftKey() {
     const id=this.devices[this.selected]?.id;
     return id&&!this.isOverlayDesigner?`desk-display-draft:${this._hass?.user?.id??'local'}:${id}`:null;
@@ -252,6 +273,7 @@ export class DeskDisplayPanel extends HTMLElement {
   showGuides(stage,widget) {
     stage.querySelectorAll('.guide').forEach(line=>line.remove());
     
+    this.showDistances(stage,widget);
     const others=this.layout.widgets.filter(w=>!this.selectedWidgets().includes(w));
     for(const [axis,size,bound] of [['x','width',480],['y','height',320]]) {
       const targets=[0,bound/2,bound,...others.flatMap(w=>[w[axis],w[axis]+w[size]/2,w[axis]+w[size]])];
@@ -638,7 +660,7 @@ export class DeskDisplayPanel extends HTMLElement {
       h1{font-size:26px;margin:0 0 8px}p{line-height:1.5;color:var(--secondary-text-color,#64748b)}
       .columns{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;flex:1;min-height:0}
       .canvas{min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px}
-      .preview-well{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+      .preview-well{overflow:auto;align-items:safe center!important;justify-content:safe center!important;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
       .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:none}.toolbar button{margin:0}
       #save-layout{margin-left:auto}.save-state{font-size:12px;white-space:nowrap;color:var(--secondary-text-color,#64748b)}
       .save-state[data-dirty=true]{color:#d97706}
@@ -668,7 +690,7 @@ export class DeskDisplayPanel extends HTMLElement {
       input,select{width:100%;background:var(--card-background-color,#fff);color:inherit;margin-top:5px}
       button{cursor:pointer;background:#2563eb;color:#fff;border:0;margin:5px 8px 5px 0}
       button.secondary{background:#475569}button:disabled{opacity:.5;cursor:wait}
-      .stage{position:relative;width:100%;aspect-ratio:3/2;background:#101827;border-radius:8px;overflow:hidden;touch-action:none}
+      .measure{position:absolute;z-index:6;background:#fbbf24;color:#1f2937;padding:2px;font-size:11px;pointer-events:none}.stage{flex:none;position:relative;width:100%;aspect-ratio:3/2;background:#101827;border-radius:8px;overflow:hidden;touch-action:none}
       .stage img{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       .stage[data-snap=true]:after{content:'';position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,#ffffff18 1px,transparent 1px),linear-gradient(to bottom,#ffffff18 1px,transparent 1px);background-size:1.6667% 2.5%;z-index:1}
       .guide{position:absolute;background:#fbbf24;z-index:4;pointer-events:none}.guide.x{top:0;bottom:0;width:1px}.guide.y{left:0;right:0;height:1px}
@@ -780,6 +802,7 @@ export class DeskDisplayPanel extends HTMLElement {
     canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
       'Klingelvorschau · Zum Bearbeiten der normalen Anzeige auf „Element“ wechseln.' :
       '480 × 320 Pixel · Ziehen oder Pfeiltasten; Shift = 10 Pixel. Griffe rechts/unten ändern Breite/Höhe, die Ecke beides.'));
+    const zoomTools=this.element('div',{class:'toolbar'});for(const [title,value] of [['−',Math.max(1,(this.zoom??1)-.5)],['+',Math.min(3,(this.zoom??1)+.5)],['Gesamtansicht',1]]){const button=this.element('button',{class:'secondary','aria-label':title==='−'?'Verkleinern':title==='+'?'Vergrößern':title},title);button.onclick=()=>this.setZoom(value);zoomTools.append(button);}zoomTools.append(this.element('small',{},`Zoom ${Math.round((this.zoom??1)*100)} %`));canvasSection.append(zoomTools);
     const add = this.element('button', {id:'add-element'}, 'Element hinzufügen');
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 10;
     if(this.layout.widgets.length>=10)add.title='Maximal zehn Elemente pro Seite. Entferne ein Element oder füge eine weitere Seite hinzu.';
@@ -796,8 +819,10 @@ export class DeskDisplayPanel extends HTMLElement {
       button.onclick=()=>this.undoEdit(direction);toolbar.append(button);
     }
     main.onkeydown=event=>{
-      if(!(event.ctrlKey||event.metaKey) || !['z','y'].includes(event.key.toLowerCase()))return;
+      if(!(event.ctrlKey||event.metaKey) || !['z','y','c','v'].includes(event.key.toLowerCase()))return;
       if(['INPUT','TEXTAREA'].includes(event.target.tagName))return;
+      if(event.composedPath().some(e=>['INPUT','TEXTAREA','HA-ENTITY-PICKER'].includes(e.tagName)))return;
+      if(event.key.toLowerCase()==='c'){event.preventDefault();this.copyElements();return;}if(event.key.toLowerCase()==='v'){event.preventDefault();this.pasteElements();return;}
       event.preventDefault();this.undoEdit(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);
     };
     const check=this.element('button',{class:'secondary'},'Layout prüfen');check.onclick=()=>this.showLayoutIssues();const compare=this.element('button',{class:'secondary'},'Vergleichen');compare.onclick=()=>this.compareDesign();toolbar.append(check,compare);
@@ -1135,7 +1160,7 @@ export class DeskDisplayPanel extends HTMLElement {
     if (typeof ResizeObserver!=='undefined') {
       this.previewResize=new ResizeObserver(entries=>{
         const {width,height}=entries[0].contentRect;
-        stage.style.width=Math.max(1,Math.floor(Math.min(width,height*1.5)))+'px';
+        stage.style.width=Math.max(1,Math.floor(Math.min(width,height*1.5)*(this.zoom??1)))+'px';
       });
       this.previewResize.observe(well);
     }
@@ -1201,7 +1226,7 @@ export class DeskDisplayPanel extends HTMLElement {
           this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
           this.refreshGroupBounds(stage);
         };
-        const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;stage.querySelectorAll('.guide').forEach(line=>line.remove());this.schedulePreview();};
+        const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;stage.querySelectorAll('.guide,.measure').forEach(line=>line.remove());this.schedulePreview();};
         hit.onpointerup=end;hit.onpointercancel=end;
       };
       if (index===this.widgetIndex && !widget.locked) {
@@ -1214,6 +1239,7 @@ export class DeskDisplayPanel extends HTMLElement {
           grip.onpointermove=move => {
             this.resizeWidget(widget,axis,start.width+(move.clientX-start.x)*480/rect.width,start.height+(move.clientY-start.y)*320/rect.height);
             position();
+            this.showDistances(stage,widget);
             this.refreshGroupBounds(stage);
             this.shadowRoot.querySelector('[data-field=width]').value=widget.width;
             this.shadowRoot.querySelector('[data-field=height]').value=widget.height;

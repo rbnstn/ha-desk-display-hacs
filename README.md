@@ -379,3 +379,7 @@ Vollständige Erweiterungsserie 0.17–0.22: frei gestaltbares Klingel-Layout, e
 ## Version 0.23.0: Sichere Entwürfe und Layoutprüfung
 
 Lokale Entwurfsicherung mit Wiederherstellung nach Neuladen, Vergleich von gespeichertem Design und Entwurf sowie Hinweise auf fehlende Entitäten, Überlappungen, abgeschnittene Texte und belegte Navigationsbereiche.
+
+## Version 0.24.0: Zoom, Zwischenablage und Abstände
+
+Zoom mit Gesamtansicht, Kopieren und Einfügen über Strg+C/Strg+V zwischen Seiten sowie Pixelabstände zu Rand und benachbarten Elementen beim Ziehen. Gruppen werden beim Einfügen unabhängig kopiert.
