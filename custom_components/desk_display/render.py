@@ -67,3 +67,17 @@ def render_preview(layout, states, media=None):
     buffer = BytesIO()
     render_image(layout, states, media).save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def render_jpeg(layout, states, media, box=None):
+    """Baseline JPEG, bounded by the firmware's shared 64 KiB upload buffer."""
+    image = render_image(layout, states, media)
+    if box is not None:
+        image = image.crop(box)
+    for quality in (80, 65, 50, 35, 20, 10):
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG', quality=quality, subsampling=2, progressive=False)
+        result = buffer.getvalue()
+        if len(result) <= 65536:
+            return result
+    raise ValueError('JPEG exceeds display buffer')

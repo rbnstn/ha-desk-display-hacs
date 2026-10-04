@@ -27,6 +27,7 @@ def list_displays(hass, connection, msg):
                            and coordinator.last_update_success),
          "touch": bool(coordinator and (coordinator.data or {}).get("touch")),
          "debug_overlay": bool(coordinator and (coordinator.data or {}).get("debug_overlay")),
+         "jpeg_regions": bool(coordinator and (coordinator.data or {}).get("jpeg_regions")),
          "layout": get_layout(entry.options)}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ])
@@ -49,7 +50,7 @@ async def preview(hass, connection, msg):
             frames.update(worker.frames)
             from .media import MESSAGES
             for index, widget in enumerate(layout['widgets']):
-                if widget['kind'] == 'media' and worker.signature == (
+                if widget['kind'] == 'media' and worker.signature and worker.signature[:3] == (
                     widget['source'], widget['width'], widget['height']
                 ):
                     statuses.append({'index':index, 'state':worker.status,

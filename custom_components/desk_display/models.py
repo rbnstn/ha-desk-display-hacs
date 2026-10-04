@@ -66,7 +66,7 @@ def validate_layout(layout):
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or set(widget) not in (keys, keys | {"source"}):
+        if not isinstance(widget, dict) or set(widget) not in (keys, keys | {"source"}, keys | {"source", "fps"}):
             raise ValueError("Ungueltiges Element")
         if widget["kind"] not in ("text", "sensor", "button", "switch", "media"):
             raise ValueError("Unbekannter Elementtyp")
@@ -94,10 +94,13 @@ def validate_layout(layout):
         normalized = dict(widget)
         if normalized["kind"] == "media":
             normalized["source"] = validate_media_source(widget.get("source", ""))
-            if widget["width"] > 160 or widget["height"] > 120:
-                raise ValueError("Stream-MVP: maximal 160 x 120 Pixel")
+            fps = widget.get('fps', 15)
+            if type(fps) is not int or not 1 <= fps <= 20:
+                raise ValueError("Zielbildrate: 1 bis 20 FPS")
+            normalized['fps'] = fps
         else:
             normalized.pop("source", None)
+            normalized.pop("fps", None)
         if normalized["kind"] in ("text", "media"):
             normalized["entity_id"] = ""
         result["widgets"].append(normalized)

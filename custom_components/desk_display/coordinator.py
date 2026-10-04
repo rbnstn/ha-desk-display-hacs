@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import DEFAULT_LAYOUT, DOMAIN
 from .models import get_layout
-from .render import render_frame
+from .render import render_frame, render_jpeg
 from .actions import action_at
 from .transport import regions
 
@@ -59,7 +59,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.entry.async_on_unload(self.async_add_listener(self._keep_polling))
         self.entry.async_on_unload(
             self.hass.bus.async_listen(EVENT_STATE_CHANGED, self._state_changed))
-        stop_timer = async_track_time_interval(self.hass, self._poll_touch, timedelta(seconds=1))
+        stop_timer = async_track_time_interval(self.hass, self._poll_touch, timedelta(seconds=.2))
         @callback
         def stop_touch():
             self.touch_stopped = True
@@ -126,6 +126,24 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         async with self.io_lock:
             return await self._update_frame()
 
+    async def async_video_frame(self, signature):
+        """Fast video path: no heartbeat, RGB565 conversion or touch GET per frame."""
+        async with self.io_lock:
+            layout = get_layout(self.entry.options)
+            widget = next((w for w in layout['widgets'] if w['kind']=='media'), None)
+            if (not widget or signature != (widget['source'],widget['width'],widget['height'],widget['fps'])
+                or layout != self.last_layout or not self.revision or not self.last_update_success):
+                return
+            media = dict(self.media.frames)
+            box = (widget['x'],widget['y'],widget['x']+widget['width'],widget['y']+widget['height'])
+            data = await self.hass.async_add_executor_job(render_jpeg,layout,snapshot_states(self.hass,layout),media,box)
+            try:
+                await self.client.push_jpeg(data,widget['x'],widget['y'],widget['width'],widget['height'],self.revision)
+            except (aiohttp.ClientError, TimeoutError, ValueError):
+                # Repair a reboot or rejected/stale frame through the normal heartbeat.
+                self.last_frame = None
+                raise
+
     async def _update_frame(self):
         try:
             layout = get_layout(self.entry.options)
@@ -141,13 +159,17 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
+            jpeg_video = info.get('jpeg_regions') and any(w['kind']=='media' for w in layout['widgets'])
             frame = await self.hass.async_add_executor_job(render_frame, layout, states,
-                                                         dict(media.frames) if media else {})
+                                                         dict(media.frames) if media and not jpeg_video else {})
             # Resend after a reboot even when the layout and states did not change.
             if frame != self.last_frame or layout != self.last_layout or not info.get("has_frame", False):
                 # Video motion leaves the action mapping unchanged.
                 revision = self.revision if layout == self.last_layout and info.get('has_frame') else uuid.uuid4().hex
-                if info.get('buffered_regions'):
+                if jpeg_video:
+                    data = await self.hass.async_add_executor_job(render_jpeg,layout,states,dict(media.frames) if media else {})
+                    await self.client.push_jpeg(data,0,0,480,320,revision,True)
+                elif info.get('buffered_regions'):
                     previous = self.last_frame if info.get('has_frame') else None
                     updates = await self.hass.async_add_executor_job(regions,frame,previous)
                     await self.client.push_regions(updates,revision)

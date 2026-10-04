@@ -61,6 +61,18 @@ class DisplayClient:
                 raise ValueError("Debug setting not confirmed")
             await response.read()
 
+    async def push_jpeg(self, data, x, y, width, height, revision, replace=False):
+        form = aiohttp.FormData()
+        form.add_field('jpeg',data,filename='frame.jpg',content_type='image/jpeg')
+        async with self.session.post(f'{self.base}/api/jpeg', params={
+            'x':x,'y':y,'width':width,'height':height,'revision':revision,
+            'replace':'1' if replace else '0'}, data=form, headers=self.headers,
+            timeout=aiohttp.ClientTimeout(total=5), allow_redirects=False) as response:
+            response.raise_for_status()
+            if response.status != 200:
+                raise ValueError('JPEG transfer not confirmed')
+            await response.read()
+
     async def push_regions(self, updates, revision):
         for index, (x,y,width,height,format_,data) in enumerate(updates):
             form = aiohttp.FormData()

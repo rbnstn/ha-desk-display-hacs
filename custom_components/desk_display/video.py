@@ -29,9 +29,9 @@ def classify_error(data):
     return "decoder_failed"
 
 
-def decoder_command(binary, source, width, height):
+def decoder_command(binary, source, width, height, fps=2):
     """Arguments are passed directly to exec, never to a shell."""
-    if not 1 <= width <= 160 or not 1 <= height <= 120:
+    if not 1 <= width <= 480 or not 1 <= height <= 320 or not 1 <= fps <= 20:
         raise ValueError("Video dimensions outside MVP limits")
     command = [binary, "-nostdin", "-hide_banner", "-loglevel", "error",
                "-threads", "1", "-filter_threads", "1", "-re",
@@ -42,14 +42,14 @@ def decoder_command(binary, source, width, height):
     else:
         command += ["-rw_timeout", "10000000"]
     return command + ["-i", source, "-an", "-sn", "-dn", "-vf",
-        f"fps=2,scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=decrease,format=rgb24,"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black",
         "-pix_fmt", "rgb24", "-threads", "1", "-f", "rawvideo", "pipe:1"]
 
 
 class VideoDecoder:
-    def __init__(self, binary, source, width, height):
-        self.command = decoder_command(binary, source, width, height)
+    def __init__(self, binary, source, width, height, fps=2):
+        self.command = decoder_command(binary, source, width, height, fps)
         self.frame_size = width * height * 3
         self.latest = None
         self.sequence = 0

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from time import monotonic
 from contextlib import suppress
 
 from homeassistant.components.camera import async_get_stream_source
@@ -17,6 +18,7 @@ from .video import VideoDecoder, VideoError
 LOGGER = logging.getLogger(__name__)
 
 MESSAGES = {
+    "firmware_required": "Diese Videogroesse benoetigt Display-Firmware 0.5.0. Bis dahin maximal 160 x 120 Pixel.",
     "camera_no_stream": "Diese HA-Kamera liefert keine Stream-URL. Bitte eine Live-/Substream-Entitaet statt einer Snapshot-Entitaet waehlen.",
     "not_video": "Die ausgewaehlte Medienquelle liefert kein Video.",
     "resolve_failed": "HA konnte die Medienquelle nicht aufloesen. Kamera-Verfuegbarkeit und Quellenwahl pruefen.",
@@ -81,7 +83,7 @@ class MediaWorker:
 
     def sync(self, layout):
         widget = next((w for w in layout["widgets"] if w["kind"] == "media"), None)
-        signature = (widget["source"], widget["width"], widget["height"]) if widget else None
+        signature = (widget["source"], widget["width"], widget["height"], widget['fps']) if widget else None
         if signature == self.signature:
             return
         self.stop()
@@ -93,7 +95,7 @@ class MediaWorker:
 
     async def run(self, signature):
         """Drain the source continuously; drop old frames when the display is slower."""
-        source, width, height = signature
+        source, width, height = signature[:3]
         while self.signature == signature:
             decoder_task = None
             stage = "resolve"
@@ -101,19 +103,28 @@ class MediaWorker:
                 async with asyncio.timeout(30):
                     url = await resolve_source(self.hass, source)
                 stage = "decode"
-                decoder = VideoDecoder(get_ffmpeg_manager(self.hass).binary, url, width, height)
+                fast = bool((self.coordinator.data or {}).get('jpeg_regions'))
+                fps = signature[3] if fast and len(signature)>3 else 2
+                if not fast and (width>160 or height>120):
+                    raise VideoError('firmware_required')
+                decoder = VideoDecoder(get_ffmpeg_manager(self.hass).binary, url, width, height, fps)
                 decoder_task = asyncio.create_task(decoder.run())
                 sequence = 0
+                deadline = monotonic()
                 while self.signature == signature:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(max(0,deadline-monotonic()))
+                    deadline = max(deadline+1/fps,monotonic())
                     if decoder.latest is not None and decoder.sequence != sequence:
-                        self.frames[signature] = decoder.latest
+                        self.frames[signature[:3]] = decoder.latest
                         sequence = decoder.sequence
                         self.status = "live"
                         self.error_code = None
                         # Drain a pending touch before a firmware frame clears its event.
-                        await self.coordinator._poll_touch()
-                        await self.coordinator.async_refresh()
+                        if fast:
+                            await self.coordinator.async_video_frame(signature)
+                        else:
+                            await self.coordinator._poll_touch()
+                            await self.coordinator.async_refresh()
                     if decoder_task.done():
                         await decoder_task
             except asyncio.CancelledError:

@@ -78,7 +78,34 @@ Die Messung wird ausgeschaltet, wenn das Overlay deaktiviert ist. Unter dem Over
 liegende Buttons reagieren in dieser Ecke nicht auf Touch. Ältere Firmware kann
 weiterhin Texte und HA-Werte anzeigen, unterstützt aber diese Verbesserungen nicht.
 
-## Video / Livestream (Integration 0.4.0)
+## Video / Livestream
+
+### Größere Videos und Größenänderung ab 0.5.0
+
+Mit Integration **0.5.0** und Firmware **0.5.0** lassen sich alle Elemente am Griff
+unten rechts vergrößern/verkleinern. Position und Größe bleiben auf das Display
+begrenzt. Die Zahlenfelder stehen ebenfalls weiterhin zur Verfügung.
+
+Videofelder können bis **480 × 320 Pixel** groß sein. Der JPEG-Transport verwendet
+den vorhandenen 64-KiB-Puffer des ESP32; kein Vollbildpuffer und kein PSRAM nötig.
+Video wird unabhängig vom zehnsekündigen Heartbeat übertragen; alte Frames werden
+verworfen. Buttons oberhalb des Videos bleiben Teil der Komposition, Touch-Ereignisse
+bleiben bei unveränderter Aktionsrevision erhalten. JPEG ist verlustbehaftet;
+bei sehr detailreichen Bildern wird die Qualität an den begrenzten Puffer angepasst.
+
+Die **Zielbildrate** ist von 1 bis 20 FPS einstellbar, standardmäßig 15. Für den
+ersten Versuch empfehlen wir **320 × 180 Pixel und 15 FPS**. Das schafft Spielraum
+für das gewünschte Ziel von mindestens 10 gemessenen FPS. Es ist keine garantierte
+Mindestbildrate: Größe, Quelle, WLAN und ESP32-Dekodierung bestimmen den realen Wert.
+Bei einem Vollbild kann die Bildrate niedriger liegen. CPU/FPS-Overlay am Gerät
+zur Messung verwenden. Im Designer bleibt die Vorschau auf etwa 1 FPS begrenzt.
+
+Für größere Videos und die höhere Bildrate **Firmware 0.5.0 flashen**, dabei
+`include/secrets.h` behalten. Anschließend HA/HACS aktualisieren, HA neu starten,
+Designer neu laden und speichern. Vorhandene Touchkalibrierung bleibt erhalten.
+Firmware 0.3.0 unterstützt weiterhin die bisherigen kleinen Streams mit 2 FPS.
+
+### Erster Stream-MVP (0.4.x)
 
 Firmware **0.3.0 reicht aus**. Nach dem HACS-Update Home Assistant vollständig
 neu starten und den Designer neu laden. Ein Element hinzufügen und den Typ

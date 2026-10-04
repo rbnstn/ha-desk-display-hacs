@@ -121,6 +121,7 @@ export class DeskDisplayPanel extends HTMLElement {
       .stage img{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
       .hit{position:absolute;border:1px dashed #94a3b8;cursor:move;background:transparent;padding:0;margin:0;touch-action:none}
       .hit.active{border:2px solid #57d9b0}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+      .resize{position:absolute;right:0;bottom:0;z-index:3;width:18px;height:18px;background:#57d9b0;border:2px solid white;cursor:nwse-resize}
       #status{min-height:24px;margin-top:16px}small{display:block;margin-top:8px;color:var(--secondary-text-color,#64748b)}
       @media(max-width:850px){.columns{grid-template-columns:1fr}main{padding:16px}}
     `));
@@ -210,7 +211,8 @@ export class DeskDisplayPanel extends HTMLElement {
           widget.width = Math.min(widget.width,160); widget.height = Math.min(Math.max(widget.height,90),120);
           widget.x = Math.min(widget.x,480-widget.width); widget.y = Math.min(widget.y,320-widget.height);
           widget.entity_id = '';
-        } else delete widget.source;
+          widget.fps = widget.fps ?? 15;
+        } else {delete widget.source;delete widget.fps;}
         const domain = widget.entity_id.split('.')[0];
         if ((widget.kind === 'button' && !['button','input_button','script'].includes(domain)) ||
             (widget.kind === 'switch' && !['switch','input_boolean'].includes(domain))) widget.entity_id = '';
@@ -231,7 +233,10 @@ export class DeskDisplayPanel extends HTMLElement {
         const browse = this.element('button',{class:'secondary'},'HA-Medien auswählen');
         browse.onclick = () => this.browseMedia(settings,widget);
         settings.append(browse,this.element('small',{},
-          'Stream-MVP: ein Videofeld, bis 160 × 120 Pixel, Ziel 2 FPS, ohne Ton. Kamera, HA-Medien oder direkte RTSP-/HTTP-/RTMP-Videoquelle. Keine Webseiten, DRM oder reine WebRTC-Quellen. Speichern startet den Stream; die Vorschau zeigt den zuletzt dekodierten Frame.'));
+          'Ein Videofeld bis 480 × 320 Pixel, ohne Ton. Größere Bilder und höhere Bildraten benötigen Firmware 0.5.0. Die tatsächliche FPS hängt von Größe, Quelle und WLAN ab. Speichern startet den Stream.'));
+        this.field(settings,'Zielbildrate (FPS)',widget.fps ?? 15,value => widget.fps=Number(value),{type:'number',min:1,max:20,step:1});
+        if (!this.devices[this.selected].jpeg_regions) settings.append(this.element('small',{},
+          'Aktuelle Firmware: weiterhin maximal 160 × 120 Pixel und 2 FPS. Bitte Firmware 0.5.0 flashen.'));
         settings.append(this.element('small',{id:'media-status',role:'status'},'Zum Starten der Quelle speichern.'));
       } else if (widget.kind !== 'text') {
         const picker = this.element('ha-entity-picker');
@@ -254,7 +259,7 @@ export class DeskDisplayPanel extends HTMLElement {
           ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
           : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));
       }
-      for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,widget.kind === 'media' ? 160 : 480],['height','Höhe',1,widget.kind === 'media' ? 120 : 320]]]) {
+      for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,480],['height','Höhe',1,320]]]) {
         const row = this.element('div',{class:'row'});
         for (const [key,title,min,max] of fields) this.field(row,title,widget[key],value=>{widget[key]=Number(value);this.refreshHits();},{type:'number',min,max,step:1,'data-field':key});
         settings.append(row);
@@ -286,6 +291,24 @@ export class DeskDisplayPanel extends HTMLElement {
         const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;this.schedulePreview();};
         hit.onpointerup=end;hit.onpointercancel=end;
       };
+      if (index===this.widgetIndex) {
+        const grip=this.element('span',{class:'resize','aria-label':`Größe von Element ${index+1} ändern`});
+        grip.onpointerdown=event => {
+          event.stopPropagation(); event.preventDefault(); grip.setPointerCapture(event.pointerId);
+          const rect=stage.getBoundingClientRect();
+          const start={x:event.clientX,y:event.clientY,width:widget.width,height:widget.height};
+          grip.onpointermove=move => {
+            widget.width=Math.max(1,Math.min(480-widget.x,Math.round(start.width+(move.clientX-start.x)*480/rect.width)));
+            widget.height=Math.max(1,Math.min(320-widget.y,Math.round(start.height+(move.clientY-start.y)*320/rect.height)));
+            position();
+            this.shadowRoot.querySelector('[data-field=width]').value=widget.width;
+            this.shadowRoot.querySelector('[data-field=height]').value=widget.height;
+          };
+          const end=()=>{grip.onpointermove=null;grip.onpointerup=null;grip.onpointercancel=null;this.schedulePreview();};
+          grip.onpointerup=end;grip.onpointercancel=end;
+        };
+        hit.append(grip);
+      }
       stage.append(hit);
     });
   }
