@@ -259,6 +259,46 @@ export class DeskDisplayPanel extends HTMLElement {
     group.append(body);parent.append(group);
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
+  addWidget(kind) {
+    if(this.overlayPreview || this.layout.widgets.length>=8 || !['text','sensor','button','switch','media','image','clock'].includes(kind))return;
+    if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild / Logo',clock:'Uhrzeit'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48]};
+    let [width,height]=sizes[kind];
+    if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
+    const bottom=(this.documentLayout().pages?.length??0)?276:320;
+    let position={x:24,y:Math.min(180,bottom-height)};
+    outer:for(let y=16;y+height<=bottom;y+=8)for(let x=16;x+width<=480;x+=8){
+      if(this.layout.widgets.every(w=>x+width<=w.x || x>=w.x+w.width || y+height<=w.y || y>=w.y+w.height)){position={x,y};break outer;}
+    }
+    const widget={kind,text:names[kind],entity_id:'',...position,width,height,size:24,color:this.layout.theme==='material_light'?'#1d1b20':'#ffffff'};
+    if(kind==='clock')widget.clock_format='time';
+    if(kind==='media'){widget.source='';widget.fps=1;}
+    if(kind==='image')widget.fit='contain';
+    this.layout.widgets.push(widget);this.widgetIndex=this.layout.widgets.length-1;this.selection=new Set([this.widgetIndex]);
+    this.inspectorTab='element';this.groupsOpen.content=true;
+    for(const key of ['arrange','rules','position','appearance'])this.groupsOpen[key]=false;
+    this.draw();this.schedulePreview();
+    this.status('Element hinzugefügt. Inhalt konfigurieren und anschließend speichern.');
+  }
+  showAddChooser() {
+    if(this.overlayPreview || this.layout.widgets.length>=8)return;
+    const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
+    dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
+    const grid=this.element('div',{class:'type-grid'});
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild / Logo','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant']];
+    const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
+    for(const [kind,name,description] of types){
+      const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
+      choice.append(this.element('strong',{},name),this.element('small',{},description));
+      choice.disabled=kind==='media' && this.layout.widgets.some(w=>w.kind==='media');
+      if(choice.disabled)choice.append(this.element('small',{},'Bereits ein Videofeld auf dieser Seite'));
+      choice.onclick=()=>{close();this.addWidget(kind);};grid.append(choice);
+    }
+    const cancel=this.element('button',{class:'secondary'},'Abbrechen');cancel.onclick=close;
+    dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
+    dialog.append(grid,cancel);this.shadowRoot.append(dialog);dialog.showModal();
+  }
   conditionSummary(condition) {
     const name=this._hass?.states?.[condition.entity_id]?.attributes?.friendly_name || condition.entity_id || 'Entität auswählen';
     const op={eq:'gleich',ne:'ungleich',gt:'größer als',gte:'mindestens',lt:'kleiner als',lte:'höchstens',missing:'nicht verfügbar'}[condition.op];
@@ -485,6 +525,11 @@ export class DeskDisplayPanel extends HTMLElement {
       .condition-summary{font-size:13px;line-height:1.5;margin:8px 0;color:var(--primary-text-color,#1f2937);overflow-wrap:anywhere}
       .rule-result{display:block;margin-top:12px}.rule-card label{margin:10px 0}
       .editor-group{border-top:1px solid var(--divider-color,#ddd);margin-top:12px}
+      .add-dialog{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto;border:1px solid var(--divider-color,#ddd);border-radius:20px;padding:20px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1f2937)}
+      .add-dialog::backdrop{background:#0008}.add-dialog h2{margin:0 0 16px;font-size:20px}
+      .type-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+      .type-choice{text-align:left;margin:0;background:var(--secondary-background-color,#e7e0ec);color:inherit;min-height:76px;border:1px solid var(--divider-color,#ddd)}
+      .type-choice small{font-size:12px;line-height:1.4}.type-choice:hover:enabled,.type-choice:focus-visible{outline:2px solid #6750a4}
       summary{cursor:pointer;font-weight:600;padding:12px 0}.group-body{padding-bottom:6px}
       .element-strip{display:flex;gap:6px;overflow:auto;flex:none;padding-bottom:2px}
       .element-strip button{white-space:nowrap;font-size:12px;margin:0;background:var(--secondary-background-color,#e7e0ec);color:inherit;padding:7px 10px}
@@ -602,13 +647,10 @@ export class DeskDisplayPanel extends HTMLElement {
     canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
       'Overlay-Vorschau · Zum Bearbeiten der normalen Elemente auf „Normale Vorschau“ wechseln.' :
       '480 × 320 Pixel · Ziehen oder Pfeiltasten; Shift = 10 Pixel. Griffe rechts/unten ändern Breite/Höhe, die Ecke beides.'));
-    const add = this.element('button', {}, 'Element hinzufügen');
+    const add = this.element('button', {id:'add-element'}, 'Element hinzufügen');
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 8;
-    add.onclick = () => {
-      this.layout.widgets.push({kind:'text',text:'Neuer Text',entity_id:'',x:24,y:180,width:300,height:48,size:24,color:'#ffffff'});
-      if (this.layout.theme === 'material_light') this.layout.widgets.at(-1).color='#1d1b20';
-      this.widgetIndex = this.layout.widgets.length - 1; this.draw(); this.preview();
-    };
+    if(this.layout.widgets.length>=8)add.title='Maximal acht Elemente pro Seite. Entferne ein Element oder füge eine weitere Seite hinzu.';
+    add.onclick = () => this.showAddChooser();
     const save = this.element('button', {id:'save-layout'}, 'Speichern & übertragen');
     save.onclick = () => this.saveLayout();
     const remove = this.element('button', {class:'secondary'}, 'Element entfernen');
@@ -733,7 +775,8 @@ export class DeskDisplayPanel extends HTMLElement {
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
       for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild / Logo'],['clock','Uhrzeit / Datum']]) {
-        kind.append(this.element('option',{value},label));
+        const option=this.element('option',{value},label);
+        option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
       kind.value = widget.kind;
       kind.onchange = () => {
@@ -753,9 +796,9 @@ export class DeskDisplayPanel extends HTMLElement {
         const domain = widget.entity_id.split('.')[0];
         if ((widget.kind === 'button' && !['button','input_button','script','lock'].includes(domain)) ||
             (widget.kind === 'switch' && !['switch','input_boolean'].includes(domain))) widget.entity_id = '';
-        this.draw(); this.schedulePreview();
+        this.groupsOpen.content=true;this.draw(); this.schedulePreview();
       };
-      settings.append(kind);
+      const kindLabel=this.element('label',{},'Elementtyp');kindLabel.append(kind);widgetPanel.append(kindLabel);
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
       if (widget.kind === 'image') {
         const upload=this.element('input',{type:'file',accept:'image/png,image/jpeg,image/webp','aria-label':'Bild oder Logo hochladen'});

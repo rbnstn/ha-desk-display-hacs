@@ -323,3 +323,7 @@ Ausrichtungs- und Verteilbuttons sowie das Ausrichtungs-Dropdown entfernt; Raste
 ## Version 0.14.3: Verständliche Farbregeln
 
 Farben & Sichtbarkeit ist ein eigener Abschnitt neben Inhalt & Daten. Regeln sind offene Wenn-dann-Karten mit verständlicher Zusammenfassung statt mehrfach verschachtelter Menüs. Der eigene Elementwert kann ohne zusätzliche Entitätsauswahl verwendet werden; andere Entitäten bleiben auswählbar. Nicht verfügbar blendet das Vergleichsfeld aus. Bestehende Regeln bleiben erhalten. Keine Firmware-Aktualisierung erforderlich.
+
+## Version 0.14.4: Elemente direkt und gezielt hinzufügen
+
+Element hinzufügen öffnet sofort eine Auswahl mit sieben verständlich beschriebenen Elementarten. Die Wahl legt das passende Element mit typgerechter Größe an, sucht möglichst freien Platz und öffnet automatisch Inhalt & Daten. Nur das neue Element wird ausgewählt. Elementtyp bleibt oben direkt erreichbar. Abbrechen verändert den Entwurf nicht; ein zweites Videofeld ist gesperrt. Keine Firmware-Aktualisierung erforderlich.
