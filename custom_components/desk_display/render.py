@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .const import HEIGHT, WIDTH
 from .models import validate_layout
+from .material import material_tile, PALETTES
 
 
 def render_image(layout, states, media=None):
@@ -12,6 +13,10 @@ def render_image(layout, states, media=None):
     layout = validate_layout(layout)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
+        if layout.get("theme") in PALETTES:
+            tile = material_tile(widget, states, media, layout["theme"])
+            image.paste(tile, (widget["x"], widget["y"]), tile)
+            continue
         if widget["kind"] == "media":
             tile = Image.new("RGB", (widget["width"], widget["height"]), "#111111")
             data = (media or {}).get((widget["source"], widget["width"], widget["height"]))

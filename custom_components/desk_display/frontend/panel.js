@@ -138,6 +138,15 @@ export class DeskDisplayPanel extends HTMLElement {
     this.draw();
     this.preview();
   }
+  applyTheme(theme) {
+    const light = theme === 'material_light';
+    this.layout.theme = theme;
+    this.layout.background = light ? '#fef7ff' : theme === 'classic' ? '#101827' : '#141218';
+    for (const widget of this.layout.widgets) {
+      widget.color = widget.kind === 'button' ? '#ffffff' : light ? '#1d1b20' : '#e6e0e9';
+    }
+    this.draw(); this.schedulePreview();
+  }
   draw() {
     this.shadowRoot.replaceChildren();
     this.shadowRoot.append(this.element('style', {}, `
@@ -145,7 +154,7 @@ export class DeskDisplayPanel extends HTMLElement {
       *{box-sizing:border-box}main{padding:28px;max-width:1100px;margin:auto}
       h1{font-size:26px;margin:0 0 8px}p{line-height:1.5;color:var(--secondary-text-color,#64748b)}
       .columns{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;margin-top:24px}
-      section{background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#ddd);border-radius:12px;padding:20px}
+      section{background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#ddd);border-radius:20px;padding:20px}
       label{display:block;margin:12px 0}input,select,button{font:inherit;border:1px solid #94a3b8;border-radius:6px;padding:9px}
       input[type=checkbox]{width:auto;margin-right:8px}
       input,select{width:100%;background:var(--card-background-color,#fff);color:inherit;margin-top:5px}
@@ -237,6 +246,7 @@ export class DeskDisplayPanel extends HTMLElement {
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 8;
     add.onclick = () => {
       this.layout.widgets.push({kind:'text',text:'Neuer Text',entity_id:'',x:24,y:180,width:300,height:48,size:24,color:'#ffffff'});
+      if (this.layout.theme === 'material_light') this.layout.widgets.at(-1).color='#1d1b20';
       this.widgetIndex = this.layout.widgets.length - 1; this.draw(); this.preview();
     };
     const save = this.element('button', {}, 'Speichern & übertragen');
@@ -266,6 +276,13 @@ export class DeskDisplayPanel extends HTMLElement {
     if (!this.devices[this.selected].touch) canvasSection.append(this.element('small', {},
       'Für Touch-Buttons und Switches bitte Display-Firmware 0.2.0 installieren. Text und HA-Werte funktionieren weiterhin.'));
     const settings = this.element('section');
+    const themeLabel = this.element('label',{},'Display-Design');
+    const theme = this.element('select',{'aria-label':'Display-Design'});
+    for (const [value,label] of [['classic','Klassisch'],['material_dark','Material · Dunkel'],['material_light','Material · Hell']])
+      theme.append(this.element('option',{value},label));
+    theme.value = this.layout.theme ?? 'classic';
+    theme.onchange = () => this.applyTheme(theme.value);
+    themeLabel.append(theme); settings.append(themeLabel,this.element('small',{},'Designwechsel setzt Hintergrund und Textfarben. Positionen, Größen und Entitäten bleiben erhalten.'));
     this.field(settings, 'Hintergrund', this.layout.background, value => this.layout.background = value, {type:'color'});
     const debugLabel = this.element('label');
     const debug = this.element('input', {type:'checkbox','aria-label':'CPU und FPS anzeigen'});
@@ -350,6 +367,22 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
+      if (this.layout.theme?.startsWith('material_')) {
+        const style = widget.style ??= {};
+        const surface = this.element('input',{type:'checkbox','aria-label':'Kartenfläche anzeigen'});
+        surface.checked = style.surface ?? widget.kind !== 'text';
+        surface.onchange = () => {style.surface=surface.checked;this.schedulePreview();};
+        const surfaceLabel=this.element('label');surfaceLabel.append(surface,document.createTextNode('Kartenfläche anzeigen'));
+        if (widget.kind !== 'media') settings.append(surfaceLabel);
+        this.field(settings,'Kartenfarbe',style.background ?? (widget.kind==='button'?'#6750a4':this.layout.theme==='material_light'?'#f3edf7':'#211f26'),
+          value=>style.background=value,{type:'color'});
+        this.field(settings,'Eckenradius',style.radius ?? 16,value=>style.radius=Number(value),{type:'number',min:0,max:32,step:1});
+        const align=this.element('select',{'aria-label':'Textausrichtung'});
+        for (const [value,label] of [['left','Linksbündig'],['center','Zentriert'],['right','Rechtsbündig']]) align.append(this.element('option',{value},label));
+        align.value=style.align ?? (widget.kind==='button'?'center':'left');
+        align.onchange=()=>{style.align=align.value;this.schedulePreview();};
+        if (widget.kind !== 'media') settings.append(align);
+      }
     }
     if (this.overlayPreview) settings.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),
       this.element('p',{},'Die Overlay-Vorlage zeigt Kamera und Türöffner an festen Positionen. Die Auswahl und Dauer stellst du oben ein. Zum Verschieben und Vergrößern deiner normalen Elemente auf „Normale Vorschau“ wechseln.'));

@@ -51,21 +51,26 @@ def is_ring(config,entity_id,before,after):
     return -2<=age<=10
 
 
-def overlay_layout(config):
+def overlay_layout(config, theme='classic'):
     def widget(kind,text,entity,x,y,width,height,size=20):
         return dict(kind=kind,text=text,entity_id=entity,x=x,y=y,width=width,height=height,size=size,color='#ffffff')
     camera=widget('media','', '',24,52,432,180)
     camera.update(source=config['camera'],fps=1)
-    return validate_layout({'background':'#101827','widgets':[
+    layout = {'background':'#101827','widgets':[
         widget('text','Jemand an der Tuer','',24,20,432,28),camera,
-        widget('button','Tuer oeffnen',config['open_entity_id'],24,244,432,48,24)]})
+        widget('button','Tuer oeffnen',config['open_entity_id'],24,244,432,48,24)]}
+    if theme in ('material_dark', 'material_light'):
+        layout['theme'] = theme
+        layout['background'] = '#fef7ff' if theme == 'material_light' else '#141218'
+        layout['widgets'][0]['color'] = '#1d1b20' if theme == 'material_light' else '#e6e0e9'
+    return validate_layout(layout)
 
 
 def current_layout(coordinator):
     layout=get_layout(coordinator.entry.options)
     config=get_doorbell(coordinator.entry.options)
     if getattr(coordinator,'doorbell_active',False) and config['enabled']:
-        layout['overlay']=overlay_layout(config)
+        layout['overlay']=overlay_layout(config, layout.get('theme', 'classic'))
         status=getattr(coordinator,'doorbell_feedback','')
         button=layout['overlay']['widgets'][-1]
         labels={'pending':('Wird geoeffnet ...','#ffd166'),
@@ -80,7 +85,7 @@ def current_layout(coordinator):
         lock=states.get(config['open_entity_id']) if states and config['open_entity_id'].startswith('lock.') else None
         if config['door_state_entity_id']:
             header['text']='Tuer offen' if contact and contact.state=='on' else 'Tuer geschlossen' if contact and contact.state=='off' else 'Tuerstatus unbekannt'
-            header['color']='#57d9b0' if contact and contact.state=='on' else '#ffffff'
+            header['color']=('#087f5b' if layout.get('theme')=='material_light' else '#57d9b0') if contact and contact.state=='on' else ('#1d1b20' if layout.get('theme')=='material_light' else '#ffffff')
         elif lock and lock.state in ('open','opening','unlocked','locked'):
             header['text']={'open':'Falle freigegeben','opening':'Schloss oeffnet ...',
                             'unlocked':'Schloss entriegelt','locked':'Schloss verriegelt'}[lock.state]

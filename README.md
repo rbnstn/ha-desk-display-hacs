@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.6.4**, Home Assistant **2026.9 oder neuer**.
+Version **0.7.0**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -222,3 +222,18 @@ gemeldet werden. Bitte keine Passwörter, Geräteschlüssel oder HA-Tokens poste
 Dies ist das öffentliche Installationsrepository. Die Entwicklung und Tests
 finden in einem separaten privaten Repository statt. Es werden nur ausgewählte
 Integrationsdateien veröffentlicht, keine private Entwicklungshistorie.
+
+## Material-Design ab 0.7.0
+
+Im Designer unter **Display-Design** zwischen Klassisch, Material · Dunkel und
+Material · Hell wählen. Speichern & übertragen übernimmt das Design. Positionen,
+Größen und Entitäten bleiben erhalten; Hintergrund und Textfarben werden beim
+Designwechsel gesetzt. Bestehende Layouts bleiben zunächst klassisch.
+
+Material bietet Karten für HA-Werte, zentrierte Buttons, Schiebeschalter und
+abgerundete Videofelder. Pro Element lassen sich Kartenfläche, Kartenfarbe,
+Eckenradius und Textausrichtung anpassen. Ab 62 Pixel Höhe erscheinen Sensorlabel
+und Wert auf getrennten Zeilen. Das optionale Klingel-Overlay folgt dem Design.
+Die Darstellung entsteht in HA; die Firmware und das Limit von 1 FPS bleiben
+unverändert. Nach dem HACS-Update HA neu starten und den Designer neu laden
+(gegebenenfalls Strg+F5). Kein Firmware-Update erforderlich.

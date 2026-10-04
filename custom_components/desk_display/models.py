@@ -52,10 +52,7 @@ def validate_info(info):
 
 def validate_layout(layout):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or set(layout) not in (
-        {"background", "widgets"}, {"background", "widgets", "debug"},
-        {"background", "widgets", "overlay"}, {"background", "widgets", "debug", "overlay"}
-    ):
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -65,9 +62,13 @@ def validate_layout(layout):
     if type(layout.get("debug", False)) is not bool:
         raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
+    if "theme" in layout:
+        if layout["theme"] not in ("classic", "material_dark", "material_light"):
+            raise ValueError("Unbekanntes Display-Design")
+        result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or set(widget) not in (keys, keys | {"source"}, keys | {"source", "fps"}):
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style"}:
             raise ValueError("Ungueltiges Element")
         if widget["kind"] not in ("text", "sensor", "button", "switch", "media"):
             raise ValueError("Unbekannter Elementtyp")
@@ -93,6 +94,19 @@ def validate_layout(layout):
         if not isinstance(widget["color"], str) or not COLOR.fullmatch(widget["color"]):
             raise ValueError("Ungueltige Textfarbe")
         normalized = dict(widget)
+        if "style" in widget:
+            style = widget["style"]
+            if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align"}:
+                raise ValueError("Ungueltiger Elementstil")
+            if "surface" in style and type(style["surface"]) is not bool:
+                raise ValueError("Kartenflaeche muss ein- oder ausgeschaltet sein")
+            if "radius" in style and (type(style["radius"]) is not int or not 0 <= style["radius"] <= 32):
+                raise ValueError("Eckenradius: 0 bis 32 Pixel")
+            if "align" in style and style["align"] not in ("left", "center", "right"):
+                raise ValueError("Ungueltige Textausrichtung")
+            if "background" in style and (not isinstance(style["background"], str) or not COLOR.fullmatch(style["background"])):
+                raise ValueError("Ungueltige Kartenfarbe")
+            normalized["style"] = dict(style)
         if normalized["kind"] == "media":
             normalized["source"] = validate_media_source(widget.get("source", ""))
             fps = widget.get('fps', 1)

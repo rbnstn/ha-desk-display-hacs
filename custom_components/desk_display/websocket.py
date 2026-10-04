@@ -44,7 +44,7 @@ async def preview(hass, connection, msg):
         layout = validate_layout(msg["layout"])
         if msg.get('overlay'):
             config=validate_doorbell(msg.get('doorbell',{}))
-            layout['overlay']=overlay_layout(config)
+            layout['overlay']=overlay_layout(config, layout.get('theme', 'classic'))
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_layout", str(err))
         return
