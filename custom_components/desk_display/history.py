@@ -18,6 +18,8 @@ def sample_history(items,start,end,limit=120):
 
 
 async def augment_states(hass,layout,states):
+    from .forecast import augment_forecasts
+    await augment_forecasts(hass,layout,states)
     charts=[w for w in layout['widgets']+layout.get('overlay',{}).get('widgets',[]) if w['kind']=='chart']
     states['__history__']={}
     states['__covers__']={}

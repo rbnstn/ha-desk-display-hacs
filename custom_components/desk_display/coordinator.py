@@ -39,14 +39,14 @@ def action_available(state, domain):
 
 def snapshot_states(hass, layout):
     now=dt_util.now()
-    result = {'__attributes__':{},'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
+    result = {'__now__':now.timestamp(),'__timezone__':hass.config.time_zone if hasattr(hass,'config') else 'UTC','__attributes__':{},'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
         for entity in entities(widget):
             raw=hass.states.get(entity)
             result['__raw__'][entity]=(raw.state,'') if raw else ('unavailable','')
         if widget["kind"] in ("text", "media", "image", "clock"):
             continue
-        if widget['kind'] in ('sensor','progress','gauge','chip','chart'):
+        if widget['kind'] in ('sensor','progress','gauge','chip','chart','cost','weather','countdown'):
             for entity in (widget['entity_id'],widget.get('value',{}).get('fallback_entity_id','')):
                 if entity:
                     raw=hass.states.get(entity)
@@ -126,6 +126,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
     @callback
     def _rotate_page(self,_now=None):
         layout=get_layout(self.entry.options);seconds=layout.get('rotation',0)
+        if any(w['kind']=='countdown' for w in current_layout(self).get('widgets',[])) and not self.touch_stopped:self.hass.async_create_task(self.async_request_refresh())
         if self.temporary_page:
             if self.doorbell_active:return
             if monotonic()<self.temporary_page[1]:return

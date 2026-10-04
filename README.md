@@ -383,3 +383,7 @@ Lokale Entwurfsicherung mit Wiederherstellung nach Neuladen, Vergleich von gespe
 ## Version 0.24.0: Zoom, Zwischenablage und Abstände
 
 Zoom mit Gesamtansicht, Kopieren und Einfügen über Strg+C/Strg+V zwischen Seiten sowie Pixelabstände zu Rand und benachbarten Elementen beim Ziehen. Gruppen werden beim Einfügen unabhängig kopiert.
+
+## Version 0.25.0: Kosten, Wetter und Countdown
+
+Neue Elemente für Energieverbrauch × Strompreis, momentane Kostenrate, HA-Wetter mit begrenzter Vorhersage und HA-Timer/Restzeit/Termine. Kosten erkennen Wh/kWh beziehungsweise W/kW und unterstützen eine Preisentität; Timer berücksichtigen Pausen und HA-Zeitzone.

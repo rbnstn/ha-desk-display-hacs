@@ -18,9 +18,9 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const picker of this.shadowRoot?.querySelectorAll?.('ha-entity-picker,ha-icon-picker') ?? []) picker.hass = value;
     if (this.isConnected && this.loaded && this.layout && previous &&
         this.layout.widgets.some(widget => {
-          return [widget.entity_id,widget.value?.fallback_entity_id,widget.visible_when?.entity_id,...(widget.rules??[]).map(r=>r.when.entity_id)].filter(Boolean).some(entity=>{
+          return [widget.entity_id,widget.value?.fallback_entity_id,widget.visible_when?.entity_id,widget.config?.tariff_entity_id,...Object.values(widget.config??{}).filter(v=>typeof v==='string' && /^[a-z_]+\.[a-z0-9_]+$/.test(v)),...(widget.rules??[]).map(r=>r.when.entity_id)].filter(Boolean).some(entity=>{
             const before=previous.states?.[entity],after=value.states?.[entity];
-            return before?.state!==after?.state || before?.attributes?.unit_of_measurement!==after?.attributes?.unit_of_measurement;
+            return before?.state!==after?.state || JSON.stringify(before?.attributes)!==JSON.stringify(after?.attributes);
           });
         })) this.schedulePreview(true);
   }
@@ -132,7 +132,7 @@ export class DeskDisplayPanel extends HTMLElement {
   startVideoPreview() {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
-      if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => ['media','clock'].includes(w.kind))) && !this.previewTimer) this.preview(true);
+      if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => ['media','clock','countdown'].includes(w.kind))) && !this.previewTimer) this.preview(true);
       if (this.isConnected) this.refreshDoorbellStatus();
       if(this.isConnected)this.refreshDiagnostics();
     }, 1000);
@@ -335,10 +335,10 @@ export class DeskDisplayPanel extends HTMLElement {
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
   addWidget(kind) {
-    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player'].includes(kind))return;
+    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player','cost','weather','countdown'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
-    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144]};
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung',cost:'Energiekosten',weather:'Wetter',countdown:'Countdown'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0)?276:320;
@@ -388,7 +388,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -950,7 +950,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const contentStart=settings.childNodes.length;
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung'],['cost','Energiekosten'],['weather','Wetter'],['countdown','Timer / Countdown']]) {
         const option=this.element('option',{value},label);
         option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
@@ -1051,6 +1051,9 @@ export class DeskDisplayPanel extends HTMLElement {
         picker.hass = this._hass; picker.value = widget.entity_id; picker.label = 'HA-Entität';
         if (widget.kind === 'button') picker.includeDomains = ['button','input_button','script','lock'];
         if(widget.kind==='slider')picker.includeDomains=['light','media_player','number','input_number'];
+        if(widget.kind==='weather')picker.includeDomains=['weather'];
+        if(widget.kind==='countdown')picker.includeDomains=['timer','sensor','input_datetime'];
+        if(widget.kind==='cost')picker.includeDomains=['sensor','input_number'];
         if(widget.kind==='player')picker.includeDomains=['media_player'];
         if (widget.kind === 'switch') picker.includeDomains = ['switch','input_boolean'];
         picker.addEventListener('value-changed', event => {
@@ -1096,6 +1099,22 @@ export class DeskDisplayPanel extends HTMLElement {
         if (widget.kind !== 'sensor') settings.append(this.element('small', {}, widget.kind === 'button'
           ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
           : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));
+      }
+
+      if(widget.kind==='cost'){
+        const config=widget.config??={};this.field(settings,'Preis pro kWh',config.price??.3,v=>config.price=Number(v),{type:'number',min:0,step:.001});
+        this.field(settings,'Währung',config.currency??'EUR',v=>config.currency=v,{maxlength:8});
+        const mode=this.element('select',{'aria-label':'Kostenberechnung'});for(const [value,text] of [['energy','Energie (Wh/kWh) × Preis'],['power','Leistung (W/kW): Kosten pro Stunde']])mode.append(this.element('option',{value},text));mode.value=config.mode??'energy';mode.onchange=()=>{config.mode=mode.value;this.schedulePreview();};settings.append(mode);
+        const tariff=this.element('ha-entity-picker');tariff.hass=this._hass;tariff.label='Preisentität pro kWh (optional)';tariff.value=config.tariff_entity_id??'';tariff.addEventListener('value-changed',e=>{config.tariff_entity_id=e.detail.value??'';this.schedulePreview();});settings.append(tariff,this.element('small',{},'Für Tageskosten einen Tagesenergie-Sensor wählen. Die Kostenrate ist keine aufsummierte Tagesrechnung. Preisentitäten müssen die gewählte Währung pro kWh liefern.'));
+        const absolute=this.element('input',{type:'checkbox'});absolute.checked=!!config.absolute;absolute.onchange=()=>{config.absolute=absolute.checked;this.schedulePreview();};const label=this.element('label');label.append(absolute,document.createTextNode('Betrag ohne Vorzeichen verwenden'));settings.append(label);
+      }
+      if(widget.kind==='weather'){
+        const config=widget.config??={};const select=this.element('select',{'aria-label':'Wettervorhersage'});for(const [value,text] of [['none','Nur aktuelles Wetter'],['daily','Täglich'],['hourly','Stündlich'],['twice_daily','Zweimal täglich']])select.append(this.element('option',{value},text));select.value=config.forecast??'daily';select.onchange=()=>{config.forecast=select.value;this.schedulePreview();};settings.append(select,this.element('small',{},'Vorhersage aus der gewählten HA-Wetterintegration. Nicht jeder Anbieter unterstützt jeden Zeitraum.'));
+      }
+      if(widget.kind==='countdown'){
+        const config=widget.config??={};const select=this.element('select',{'aria-label':'Countdown-Quelle'});for(const [value,text] of [['auto','Automatisch: HA-Timer / Sekunden / Termin'],['timestamp','Datum und Uhrzeit'],['seconds','Restzeit in Sekunden'],['minutes','Restzeit in Minuten'],['hours','Restzeit in Stunden']])select.append(this.element('option',{value},text));select.value=config.mode??'auto';select.onchange=()=>{config.mode=select.value;this.schedulePreview();};settings.append(select);
+        this.field(settings,'Gesamtdauer für Fortschritt (Sekunden, 0 = automatisch)',config.total??0,v=>config.total=Number(v),{type:'number',min:0,max:31536000,step:1});
+        settings.append(this.element('small',{},'HA-Timer berücksichtigen Pause und Endzeit. Zeitangaben ohne Zeitzone verwenden die HA-Zeitzone. Restzeit-Sensoren werden nur angezeigt, nicht gestartet.'));
       }
       this.wrapFields(settings,contentStart,'content','Inhalt & Daten',true);
       const ruleStart=settings.childNodes.length;

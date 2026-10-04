@@ -16,6 +16,9 @@ def validate_config(widget):
     config=widget.get('config',{})
     if not isinstance(config,dict):raise ValueError('Ungueltige Elementkonfiguration')
     kind=widget['kind']
+    if kind in ('cost','weather','countdown'):
+        from .data_widgets import validate
+        validate(widget);return
     allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
     if set(config)-allowed:raise ValueError('Unbekannte Elementeinstellung')
     if kind in ('progress','gauge'):

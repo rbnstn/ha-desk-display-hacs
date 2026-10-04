@@ -31,7 +31,7 @@ def validate_rules(widget):
         if not isinstance(rule['symbol'],str) or len(rule['symbol'])>4 or any(ord(c)<32 for c in rule['symbol']):raise ValueError('Symbol: maximal vier Zeichen')
 
 def entities(widget):
-    linked=[widget.get('entity_id',''),widget.get('value',{}).get('fallback_entity_id','')]
+    linked=[widget.get('entity_id',''),widget.get('value',{}).get('fallback_entity_id',''),widget.get('config',{}).get('tariff_entity_id','')]
     if widget['kind']=='energy':linked.extend(widget.get('config',{}).get(role,'') for role in ('solar','house','battery','grid'))
     return [e for e in linked if e]+[c['entity_id'] for c in ([widget['visible_when']] if 'visible_when' in widget else [])+[r['when'] for r in widget.get('rules',[])]]
 
