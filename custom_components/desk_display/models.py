@@ -94,10 +94,11 @@ def validate_layout(layout):
         normalized = dict(widget)
         if normalized["kind"] == "media":
             normalized["source"] = validate_media_source(widget.get("source", ""))
-            fps = widget.get('fps', 15)
+            fps = widget.get('fps', 1)
             if type(fps) is not int or not 1 <= fps <= 20:
                 raise ValueError("Zielbildrate: 1 bis 20 FPS")
-            normalized['fps'] = fps
+            # Migrate older saved rates while keeping their input validation.
+            normalized['fps'] = 1
         else:
             normalized.pop("source", None)
             normalized.pop("fps", None)

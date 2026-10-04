@@ -211,7 +211,7 @@ export class DeskDisplayPanel extends HTMLElement {
           widget.width = Math.min(widget.width,160); widget.height = Math.min(Math.max(widget.height,90),120);
           widget.x = Math.min(widget.x,480-widget.width); widget.y = Math.min(widget.y,320-widget.height);
           widget.entity_id = '';
-          widget.fps = widget.fps ?? 15;
+          widget.fps = 1;
         } else {delete widget.source;delete widget.fps;}
         const domain = widget.entity_id.split('.')[0];
         if ((widget.kind === 'button' && !['button','input_button','script'].includes(domain)) ||
@@ -233,10 +233,10 @@ export class DeskDisplayPanel extends HTMLElement {
         const browse = this.element('button',{class:'secondary'},'HA-Medien auswählen');
         browse.onclick = () => this.browseMedia(settings,widget);
         settings.append(browse,this.element('small',{},
-          'Ein Videofeld bis 480 × 320 Pixel, ohne Ton. Größere Bilder und höhere Bildraten benötigen Firmware 0.5.0. Die tatsächliche FPS hängt von Größe, Quelle und WLAN ab. Speichern startet den Stream.'));
-        this.field(settings,'Zielbildrate (FPS)',widget.fps ?? 15,value => widget.fps=Number(value),{type:'number',min:1,max:20,step:1});
+          'Ein Videofeld bis 480 × 320 Pixel, ohne Ton. Der Stream wird höchstens einmal pro Sekunde aktualisiert. Werte, Buttons und Switches arbeiten unabhängig davon. Größere Bilder benötigen Firmware 0.5.0. Speichern startet den Stream.'));
+        widget.fps = 1;
         if (!this.devices[this.selected].jpeg_regions) settings.append(this.element('small',{},
-          'Aktuelle Firmware: weiterhin maximal 160 × 120 Pixel und 2 FPS. Bitte Firmware 0.5.0 flashen.'));
+          'Aktuelle Firmware: maximal 160 × 120 Pixel. Für größere Bilder bitte Firmware 0.5.0 flashen.'));
         settings.append(this.element('small',{id:'media-status',role:'status'},'Zum Starten der Quelle speichern.'));
       } else if (widget.kind !== 'text') {
         const picker = this.element('ha-entity-picker');

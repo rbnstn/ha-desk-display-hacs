@@ -104,7 +104,7 @@ class MediaWorker:
                     url = await resolve_source(self.hass, source)
                 stage = "decode"
                 fast = bool((self.coordinator.data or {}).get('jpeg_regions'))
-                fps = signature[3] if fast and len(signature)>3 else 2
+                fps = 1
                 if not fast and (width>160 or height>120):
                     raise VideoError('firmware_required')
                 decoder = VideoDecoder(get_ffmpeg_manager(self.hass).binary, url, width, height, fps)
@@ -113,7 +113,6 @@ class MediaWorker:
                 deadline = monotonic()
                 while self.signature == signature:
                     await asyncio.sleep(max(0,deadline-monotonic()))
-                    deadline = max(deadline+1/fps,monotonic())
                     if decoder.latest is not None and decoder.sequence != sequence:
                         self.frames[signature[:3]] = decoder.latest
                         sequence = decoder.sequence
@@ -127,6 +126,9 @@ class MediaWorker:
                             await self.coordinator.async_refresh()
                     if decoder_task.done():
                         await decoder_task
+                    # Leave a full interval after processing, including lock waits.
+                    # A late transfer must never produce a catch-up burst.
+                    deadline = monotonic()+1/fps
             except asyncio.CancelledError:
                 raise
             except Exception as err:

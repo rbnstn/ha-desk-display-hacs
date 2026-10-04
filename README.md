@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.3.0**, Home Assistant **2026.9 oder neuer**.
+Version **0.5.1**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -33,8 +33,8 @@ Buttons unterstützen `button`, `input_button` und `script`; Switches unterstüt
 `switch` und `input_boolean`. Aktionen werden nur durch Tippen am physischen Display
 ausgelöst. Die Editor-Vorschau ist ausschließlich zum Gestalten.
 
-Der MVP unterstützt eine Seite pro Display. Kamerastream und Klingelansicht
-sind noch nicht enthalten.
+Der MVP unterstützt eine Seite pro Display und ein Videofeld. Eine automatische
+Klingelansicht ist noch nicht enthalten.
 
 ## Display-Firmware
 
@@ -93,17 +93,18 @@ verworfen. Buttons oberhalb des Videos bleiben Teil der Komposition, Touch-Ereig
 bleiben bei unveränderter Aktionsrevision erhalten. JPEG ist verlustbehaftet;
 bei sehr detailreichen Bildern wird die Qualität an den begrenzten Puffer angepasst.
 
-Die **Zielbildrate** ist von 1 bis 20 FPS einstellbar, standardmäßig 15. Für den
-ersten Versuch empfehlen wir **320 × 180 Pixel und 15 FPS**. Das schafft Spielraum
-für das gewünschte Ziel von mindestens 10 gemessenen FPS. Es ist keine garantierte
-Mindestbildrate: Größe, Quelle, WLAN und ESP32-Dekodierung bestimmen den realen Wert.
-Bei einem Vollbild kann die Bildrate niedriger liegen. CPU/FPS-Overlay am Gerät
-zur Messung verwenden. Im Designer bleibt die Vorschau auf etwa 1 FPS begrenzt.
+Ab Integration **0.5.1** sind Streams fest auf **höchstens 1 FPS** begrenzt, auch
+bei älteren gespeicherten Layouts mit höherer Zielbildrate. HA-Werte und Touch-
+Aktionen werden unabhängig vom Videotakt verarbeitet. Es werden weiterhin die
+neuesten verfügbaren Bilder verwendet und alte Frames verworfen. Bei langsamer
+Quelle oder Verbindung kann die Bildrate niedriger sein. Der FPS-Zähler zählt
+auch andere Bildänderungen; solche Updates können ihn über 1 steigen lassen.
 
-Für größere Videos und die höhere Bildrate **Firmware 0.5.0 flashen**, dabei
+Für größere Videos **Firmware 0.5.0 oder neuer flashen**, dabei
 `include/secrets.h` behalten. Anschließend HA/HACS aktualisieren, HA neu starten,
 Designer neu laden und speichern. Vorhandene Touchkalibrierung bleibt erhalten.
-Firmware 0.3.0 unterstützt weiterhin die bisherigen kleinen Streams mit 2 FPS.
+Für die Begrenzung auf 1 FPS genügt das HACS-Update; Firmware 0.3.0 unterstützt
+weiterhin kleine Streams bis 160 × 120 Pixel, ebenfalls mit höchstens 1 FPS.
 
 ### Erster Stream-MVP (0.4.x)
 
