@@ -239,9 +239,12 @@ export class DeskDisplayPanel extends HTMLElement {
     const select=this.shadowRoot?.querySelector?.('select[aria-label="Element auswählen"]');
     for (const [index,widget] of (this.layout?.widgets ?? []).entries()) {
       const text=`${index+1}. ${this.widgetLabel(widget)}`;
-      if (select?.options[index]) select.options[index].textContent=text;
+      if (select?.options[index]) select.options[index].textContent=text+(widget.group?` · ${this.groupLabel(widget.group)}`:'');
       const button=this.shadowRoot?.querySelector?.(`.element-strip button[data-index="${index}"]`);
-      if (button) button.textContent=text;
+      if (button) {
+        button.textContent=text;
+        if(widget.group)button.append(this.element('span',{class:'group-badge'},this.groupLabel(widget.group)));
+      }
     }
   }
   widgetLabel(widget) {
@@ -479,7 +482,12 @@ export class DeskDisplayPanel extends HTMLElement {
       .guide{position:absolute;background:#fbbf24;z-index:4;pointer-events:none}.guide.x{top:0;bottom:0;width:1px}.guide.y{left:0;right:0;height:1px}
       .hit{position:absolute;border:1px dashed #94a3b8;cursor:move;background:transparent;padding:0;margin:0;touch-action:none}
       .hit.active{border:2px solid #57d9b0}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-      .resize{position:absolute;right:0;bottom:0;z-index:3;width:18px;height:18px;background:#57d9b0;border:2px solid white;cursor:nwse-resize}
+      .resize{position:absolute;right:0;bottom:0;z-index:5;width:18px;height:18px;background:#57d9b0;border:2px solid white;cursor:nwse-resize}
+      .resize.width{top:50%;bottom:auto;transform:translateY(-50%);width:10px;height:26px;cursor:ew-resize}
+      .resize.height{left:50%;right:auto;transform:translateX(-50%);width:26px;height:10px;cursor:ns-resize}
+      .group-outline{position:absolute;border:2px dashed #fbbf24;border-radius:5px;pointer-events:none;z-index:2}
+      .group-label{position:absolute;left:0;top:0;background:#fbbf24;color:#1f2937;font-size:10px;line-height:14px;padding:0 3px;border-radius:0 0 3px 0}
+      .group-badge{margin-left:6px;border-radius:4px;padding:1px 4px;background:#fbbf24;color:#1f2937;font-size:10px}
       #status{min-height:20px;margin:0;font-size:13px}small{display:block;margin-top:8px;color:var(--secondary-text-color,#64748b)}
       .canvas small{font-size:12px;margin:0}
       @media(max-width:800px){main{padding:10px;gap:8px}.workspace-header{gap:10px}.workspace-header h1{font-size:18px}
@@ -567,13 +575,14 @@ export class DeskDisplayPanel extends HTMLElement {
     stage.append(image);well.append(stage);canvasSection.append(well);
     const elementStrip=this.element('div',{class:'element-strip','aria-label':'Elemente'});
     this.layout.widgets.forEach((widget,index)=>{
-      const choose=this.element('button',{'aria-pressed':String(index===this.widgetIndex),'data-index':index},`${index+1}. ${this.widgetLabel(widget)}`);
+      const choose=this.element('button',{'aria-pressed':String(this.selection?.has(index)||index===this.widgetIndex),'data-index':index},`${index+1}. ${this.widgetLabel(widget)}`);
+      if(widget.group)choose.append(this.element('span',{class:'group-badge'},this.groupLabel(widget.group)));
       choose.disabled=this.overlayPreview;choose.onclick=event=>this.selectWidget(index,event.ctrlKey||event.metaKey);elementStrip.append(choose);
     });
     canvasSection.append(elementStrip);
     canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
       'Overlay-Vorschau · Zum Bearbeiten der normalen Elemente auf „Normale Vorschau“ wechseln.' :
-      '480 × 320 Pixel · Ziehen oder Pfeiltasten; Shift = 10 Pixel. Größe am grünen Griff ändern.'));
+      '480 × 320 Pixel · Ziehen oder Pfeiltasten; Shift = 10 Pixel. Griffe rechts/unten ändern Breite/Höhe, die Ecke beides.'));
     const add = this.element('button', {}, 'Element hinzufügen');
     add.disabled = this.overlayPreview || this.layout.widgets.length >= 8;
     add.onclick = () => {
@@ -695,15 +704,11 @@ export class DeskDisplayPanel extends HTMLElement {
       snap.onchange=()=>{this.snapEnabled=snap.checked;stage.dataset.snap=String(snap.checked);};
       const snapLabel=this.element('label');snapLabel.append(snap,document.createTextNode('8-Pixel-Raster und Kanten einrasten'));settings.append(snapLabel);
       settings.append(this.element('small',{},'Strg/Klick wählt mehrere Elemente. Gruppen werden gemeinsam verschoben.'));
-      for(const [label,action] of [['Gruppieren',()=>this.groupSelection()],['Gruppe auflösen',()=>this.groupSelection(true)],['Links gemeinsam ausrichten',()=>this.arrangeSelection('x')],['Oben gemeinsam ausrichten',()=>this.arrangeSelection('y')],['Horizontal verteilen',()=>this.arrangeSelection('x',true)],['Vertikal verteilen',()=>this.arrangeSelection('y',true)]]) {
+      if(widget.group)settings.append(this.element('small',{},`${this.groupLabel(widget.group)} · ${this.layout.widgets.filter(w=>w.group===widget.group).length} Elemente. Gelber Rahmen und gleiche Kennzeichnung zeigen die Zusammengehörigkeit.`));
+      for(const [label,action] of [['Gruppieren',()=>this.groupSelection()],['Gruppe auflösen',()=>this.groupSelection(true)]]) {
         const button=this.element('button',{class:'secondary'},label);button.onclick=action;settings.append(button);
       }
-      const alignment=this.element('select',{'aria-label':'Am Display ausrichten'});
-      alignment.append(this.element('option',{value:''},'Am Display ausrichten …'));
-      for (const [value,label] of [['left','Links'],['center','Horizontal mittig'],['right','Rechts'],['top','Oben'],['middle','Vertikal mittig'],['bottom','Unten']])
-        alignment.append(this.element('option',{value},label));
-      alignment.onchange=()=>this.alignSelected(alignment.value);
-      settings.append(alignment,this.element('small',{},'Ausrichtung bezieht sich auf das ganze Display. Die oberste Ebene bestimmt auch das Touch-Ziel. Maximal acht Elemente und ein Videofeld.'));
+      settings.append(this.element('small',{},'Mit Raster und Hilfslinien ausrichten. Die oberste Ebene bestimmt auch das Touch-Ziel. Maximal acht Elemente und ein Videofeld.'));
       this.wrapFields(settings,arrangeStart,'arrange','Anordnen');
       const contentStart=settings.childNodes.length;
       const ruleStart=settings.childNodes.length;
@@ -873,6 +878,26 @@ export class DeskDisplayPanel extends HTMLElement {
       this.previewResize.observe(well);
     }
   }
+  groupLabel(group) {
+    const groups=[...new Set(this.layout.widgets.map(w=>w.group).filter(Boolean))];
+    return `Gruppe ${groups.indexOf(group)+1}`;
+  }
+  refreshGroupBounds(stage) {
+    stage.querySelectorAll('.group-outline').forEach(element=>element.remove());
+    const groups=[...new Set(this.layout.widgets.map(w=>w.group).filter(Boolean))];
+    for(const group of groups) {
+      const members=this.layout.widgets.filter(w=>w.group===group);
+      const x=Math.min(...members.map(w=>w.x)),y=Math.min(...members.map(w=>w.y));
+      const right=Math.max(...members.map(w=>w.x+w.width)),bottom=Math.max(...members.map(w=>w.y+w.height));
+      const box=this.element('div',{class:'group-outline','aria-label':`${this.groupLabel(group)}: ${members.length} Elemente`});
+      Object.assign(box.style,{left:`${x/4.8}%`,top:`${y/3.2}%`,width:`${(right-x)/4.8}%`,height:`${(bottom-y)/3.2}%`});
+      box.append(this.element('span',{class:'group-label'},this.groupLabel(group)));stage.append(box);
+    }
+  }
+  resizeWidget(widget,axis,width,height) {
+    if(axis!=='height')widget.width=Math.max(1,Math.min(480-widget.x,Math.round(width)));
+    if(axis!=='width')widget.height=Math.max(1,Math.min(320-widget.y,Math.round(height)));
+  }
   refreshHits() {
     const stage = this.shadowRoot.querySelector('.stage');
     stage.querySelectorAll('.hit').forEach(element=>element.remove());
@@ -890,6 +915,7 @@ export class DeskDisplayPanel extends HTMLElement {
         for(const [i,w] of this.layout.widgets.entries()){const target=stage.querySelectorAll('.hit')[i];if(target){target.style.left=`${w.x/4.8}%`;target.style.top=`${w.y/3.2}%`;}}
         this.shadowRoot.querySelector('[data-field=x]').value=widget.x;
         this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
+        this.refreshGroupBounds(stage);
         this.schedulePreview();
       };
       hit.onpointerdown = event => {
@@ -906,20 +932,22 @@ export class DeskDisplayPanel extends HTMLElement {
           for(const [i,w] of this.layout.widgets.entries()) {const target=stage.querySelectorAll('.hit')[i];if(target){target.style.left=`${w.x/4.8}%`;target.style.top=`${w.y/3.2}%`;}}
           this.shadowRoot.querySelector('[data-field=x]').value=widget.x;
           this.shadowRoot.querySelector('[data-field=y]').value=widget.y;
+          this.refreshGroupBounds(stage);
         };
         const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;stage.querySelectorAll('.guide').forEach(line=>line.remove());this.schedulePreview();};
         hit.onpointerup=end;hit.onpointercancel=end;
       };
       if (index===this.widgetIndex) {
-        const grip=this.element('span',{class:'resize','aria-label':`Größe von Element ${index+1} ändern`});
+        for(const [axis,label] of [['both','Größe'],['width','Breite'],['height','Höhe']]) {
+        const grip=this.element('span',{class:`resize ${axis}`,'aria-label':`${label} von Element ${index+1} ändern`});
         grip.onpointerdown=event => {
           event.stopPropagation(); event.preventDefault(); grip.setPointerCapture(event.pointerId);
           const rect=stage.getBoundingClientRect();
           const start={x:event.clientX,y:event.clientY,width:widget.width,height:widget.height};
           grip.onpointermove=move => {
-            widget.width=Math.max(1,Math.min(480-widget.x,Math.round(start.width+(move.clientX-start.x)*480/rect.width)));
-            widget.height=Math.max(1,Math.min(320-widget.y,Math.round(start.height+(move.clientY-start.y)*320/rect.height)));
+            this.resizeWidget(widget,axis,start.width+(move.clientX-start.x)*480/rect.width,start.height+(move.clientY-start.y)*320/rect.height);
             position();
+            this.refreshGroupBounds(stage);
             this.shadowRoot.querySelector('[data-field=width]').value=widget.width;
             this.shadowRoot.querySelector('[data-field=height]').value=widget.height;
           };
@@ -927,9 +955,11 @@ export class DeskDisplayPanel extends HTMLElement {
           grip.onpointerup=end;grip.onpointercancel=end;
         };
         hit.append(grip);
+        }
       }
       stage.append(hit);
     });
+    this.refreshGroupBounds(stage);
   }
   schedulePreview(quiet = false) {
     if(!quiet)this.recordEdit();

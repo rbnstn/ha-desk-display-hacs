@@ -315,3 +315,7 @@ Helligkeit, Nachtzeitplan und HA-Lichtentität, Aufhellen beim Klingeln, Verbind
 ## Version 0.14.1: Gerätefunktionen und geprüfte Verbindung
 
 Enthält die Gerätefunktionen aus 0.14.0 sowie bestätigte Daten-Heartbeats, geprüfte Firmware-Uploads, globale Debug-Einstellungen und eine größere Smartphone-Vorschau. HA-Vertragsprüfungen, Firmware-Build und Designer-Tests erfolgreich. Neue Hardwarefunktionen benötigen Firmware 0.6.0; einmalig per USB installieren.
+
+## Version 0.14.2: Einfacher anordnen und getrennt skalieren
+
+Ausrichtungs- und Verteilbuttons sowie das Ausrichtungs-Dropdown entfernt; Raster und Hilfslinien bleiben. Gruppen haben einen gemeinsamen gelben Rahmen und nummerierte Kennzeichnungen in Elementliste und Auswahl. Zusätzliche Griffe ändern nur Breite oder Höhe; der Eckgriff ändert beide. Keine Firmware-Aktualisierung erforderlich. Achsentreues Ziehen, Grenzen und Rückgängig im Browser und Node geprüft.
