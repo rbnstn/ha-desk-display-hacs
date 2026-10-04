@@ -319,3 +319,7 @@ Enthält die Gerätefunktionen aus 0.14.0 sowie bestätigte Daten-Heartbeats, ge
 ## Version 0.14.2: Einfacher anordnen und getrennt skalieren
 
 Ausrichtungs- und Verteilbuttons sowie das Ausrichtungs-Dropdown entfernt; Raster und Hilfslinien bleiben. Gruppen haben einen gemeinsamen gelben Rahmen und nummerierte Kennzeichnungen in Elementliste und Auswahl. Zusätzliche Griffe ändern nur Breite oder Höhe; der Eckgriff ändert beide. Keine Firmware-Aktualisierung erforderlich. Achsentreues Ziehen, Grenzen und Rückgängig im Browser und Node geprüft.
+
+## Version 0.14.3: Verständliche Farbregeln
+
+Farben & Sichtbarkeit ist ein eigener Abschnitt neben Inhalt & Daten. Regeln sind offene Wenn-dann-Karten mit verständlicher Zusammenfassung statt mehrfach verschachtelter Menüs. Der eigene Elementwert kann ohne zusätzliche Entitätsauswahl verwendet werden; andere Entitäten bleiben auswählbar. Nicht verfügbar blendet das Vergleichsfeld aus. Bestehende Regeln bleiben erhalten. Keine Firmware-Aktualisierung erforderlich.
