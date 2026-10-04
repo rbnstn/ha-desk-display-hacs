@@ -68,6 +68,8 @@ def overlay_layout(config, theme='classic'):
 
 def current_layout(coordinator):
     layout=get_layout(coordinator.entry.options)
+    from .pages import page_layout
+    layout=page_layout(layout,getattr(coordinator,'page_index',0))
     config=get_doorbell(coordinator.entry.options)
     if getattr(coordinator,'doorbell_active',False) and config['enabled']:
         layout['overlay']=overlay_layout(config, layout.get('theme', 'classic'))

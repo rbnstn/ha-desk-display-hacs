@@ -303,3 +303,7 @@ Bedingte Textfarben und Symbol-Präfixe (bis vier Regeln), Sichtbarkeit nach HA-
 ## Version 0.12.0: Safe preview and layout recovery
 
 Vorschau-Simulation für HA-Zustände und Tür-Rückmeldungen ohne Geräteaktion. Layout- und Komponenten-Dateien exportieren/importieren, serverseitig prüfen; drei automatische Sicherungen der vorherigen gespeicherten Layouts. Wiederherstellen bleibt bis zum Speichern ein Entwurf. Kein Firmware-Update nötig.
+
+## Version 0.13.0: Pages and reusable templates
+
+Bis vier Seiten mit Touch-Navigation, optionalem Wechsel (15–300 Sekunden) und Pause während des Klingel-Overlays. Vorlagen für Werte, Schalter, Uhr/Datum und Kamera; eigene Gruppen per Komponenten-Datei wiederverwenden. Die unteren 44 Pixel bleiben bei mehreren Seiten für Navigation und Status frei. Ein Stream pro aktiver Seite, weiterhin maximal 1 FPS. Kein Firmware-Update nötig.

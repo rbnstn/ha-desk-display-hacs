@@ -21,6 +21,7 @@ from .actions import action_at
 from .transport import regions
 from .doorbell import current_layout, get_doorbell, is_ring, video_widget
 from .rules import entities
+from .pages import all_widgets
 
 LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.doorbell_session=0
         self.doorbell_feedback=''
         self.doorbell_last_press=0
+        self.page_index=0
+        self.page_deadline=0
 
     @callback
     def async_start(self):
@@ -100,6 +103,18 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             stop_timer()
         self.entry.async_on_unload(stop_touch)
         self.entry.async_on_unload(self.stop_doorbell)
+        self.entry.async_on_unload(async_track_time_interval(self.hass,self._rotate_page,timedelta(seconds=1)))
+
+    @callback
+    def _rotate_page(self,_now=None):
+        layout=get_layout(self.entry.options);seconds=layout.get('rotation',0)
+        if not seconds or not layout.get('pages') or self.doorbell_active:
+            self.page_deadline=0;return
+        if not self.page_deadline:self.page_deadline=monotonic()+seconds
+        elif monotonic()>=self.page_deadline:
+            self.page_index=(self.page_index+1)%(1+len(layout['pages']))
+            self.page_deadline=monotonic()+seconds
+            self.hass.async_create_task(self.async_refresh())
 
     @callback
     def stop_doorbell(self):
@@ -170,6 +185,9 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 self.last_touch_id = event["id"]
             if action is not None and not self.touch_stopped:
                 domain, service, entity_id = action
+                if domain=='desk_display' and service=='page':
+                    self.page_index=int(entity_id);self.page_deadline=0
+                    await self.async_refresh();return
                 state = self.hass.states.get(entity_id)
                 if action_available(state, domain):
                     config=get_doorbell(self.entry.options)
@@ -221,7 +239,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             return
         layout=current_layout(self)
         saved=get_layout(self.entry.options)
-        widgets=saved['widgets']+layout.get('overlay',{}).get('widgets',[])
+        widgets=all_widgets(saved)+layout.get('overlay',{}).get('widgets',[])
         contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
         if not contact_changed and not any(entity_id in entities(widget) or (widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id','')))
                    for widget in widgets):

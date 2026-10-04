@@ -38,12 +38,14 @@ def list_displays(hass, connection, msg):
 
 @websocket_api.websocket_command({"type": "desk_display/preview", vol.Required("layout"): dict,
                                   vol.Optional('doorbell'):dict, vol.Optional('overlay',default=False):bool,
-                                  vol.Optional('simulation'):dict})
+                                  vol.Optional('simulation'):dict,vol.Optional('page',default=0):vol.All(int,vol.Range(min=0,max=3))})
 @websocket_api.require_admin
 @websocket_api.async_response
 async def preview(hass, connection, msg):
     try:
         layout = validate_layout(msg["layout"])
+        from .pages import page_layout
+        layout=page_layout(layout,msg.get('page',0))
         if msg.get('overlay'):
             config=validate_doorbell(msg.get('doorbell',{}))
             layout['overlay']=overlay_layout(config, layout.get('theme', 'classic'))

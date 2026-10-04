@@ -14,6 +14,7 @@ def action_at(layout, x, y):
         if widget["x"] <= x < widget["x"] + widget["width"] and (
             widget["y"] <= y < widget["y"] + widget["height"]
         ):
+            if widget['kind']=='navigation':return ('desk_display','page',str(widget['target']))
             domain = widget["entity_id"].split(".", 1)[0]
             services = BUTTON_SERVICES if widget["kind"] == "button" else (
                 SWITCH_SERVICES if widget["kind"] == "switch" else {})

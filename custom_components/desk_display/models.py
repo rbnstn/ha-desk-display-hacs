@@ -51,33 +51,44 @@ def validate_info(info):
     return info
 
 
-def validate_layout(layout):
+def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
     widgets = layout["widgets"]
-    if not isinstance(widgets, list) or len(widgets) > 8:
+    if not isinstance(widgets, list) or len(widgets) > 12 or sum(isinstance(w,dict) and w.get('kind')!='navigation' for w in widgets)>8:
         raise ValueError("Maximal acht Elemente")
     if type(layout.get("debug", False)) is not bool:
         raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
+    if 'page_name' in layout:
+        if not isinstance(layout['page_name'],str) or not 1<=len(layout['page_name'])<=20 or any(ord(c)<32 for c in layout['page_name']):raise ValueError('Seitenname: 1 bis 20 Zeichen')
+        result['page_name']=layout['page_name']
+    if 'rotation' in layout:
+        value=layout['rotation']
+        if type(value) is not int or (value!=0 and not 15<=value<=300):raise ValueError('Seitenwechsel: 0 oder 15 bis 300 Sekunden')
+        result['rotation']=value
+    if 'pages' in layout:
+        if nested or not isinstance(layout['pages'],list) or len(layout['pages'])>3:raise ValueError('Maximal vier Seiten ohne Verschachtelung')
+        result['pages']=[validate_layout(page,True) for page in layout['pages']]
+        if any('overlay' in page or 'rotation' in page for page in result['pages']):raise ValueError('Seiten enthalten kein Overlay oder Rotation')
     if "theme" in layout:
         if layout["theme"] not in ("classic", "material_dark", "material_light"):
             raise ValueError("Unbekanntes Display-Design")
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] not in ("text", "media", "image", "clock") and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] not in ("text", "media", "image", "clock", "navigation") and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
         domain = widget["entity_id"].split(".", 1)[0]
         if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
@@ -95,6 +106,9 @@ def validate_layout(layout):
         if not isinstance(widget["color"], str) or not COLOR.fullmatch(widget["color"]):
             raise ValueError("Ungueltige Textfarbe")
         normalized = dict(widget)
+        if widget['kind']=='navigation':
+            if type(widget.get('target')) is not int or not 0<=widget['target']<=3:raise ValueError('Ungueltige Zielseite')
+        elif 'target' in widget:raise ValueError('Zielseite nur fuer Navigation')
         from .rules import validate_rules
         validate_rules(widget)
         if 'group' in widget and (not isinstance(widget['group'],str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,40}',widget['group'])):

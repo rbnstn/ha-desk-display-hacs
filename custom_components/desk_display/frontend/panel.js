@@ -115,6 +115,7 @@ export class DeskDisplayPanel extends HTMLElement {
     return element;
   }
   loadDoorbell() {
+    this.rootLayout=this.layout;this.pageIndex=0;
     this.doorbell = structuredClone(this.devices[this.selected]?.doorbell ??
       {enabled:false,entity_id:'',camera:'',open_entity_id:'',duration:30,preload:false});
     this.doorbell.preload ??= false;
@@ -140,6 +141,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.historyIndex=target;
     const state=JSON.parse(this.history[target]);
     this.layout=state.layout;this.doorbell=state.doorbell;
+    this.rootLayout=this.layout;this.pageIndex=0;
     this.widgetIndex=Math.min(this.widgetIndex,Math.max(0,this.layout.widgets.length-1));
     this.selection=new Set([this.widgetIndex]);this.draw();this.preview();
   }
@@ -181,7 +183,8 @@ export class DeskDisplayPanel extends HTMLElement {
     } else {for(const w of widgets)w[axis]=widgets[0][axis];}
     this.recordEdit();this.draw();this.schedulePreview();
   }
-  editState(layout=this.layout,doorbell=this.doorbell) {
+  documentLayout() {return this.pageIndex?this.rootLayout:this.layout;}
+  editState(layout=this.documentLayout(),doorbell=this.doorbell) {
     return JSON.stringify({layout,doorbell},(key,value)=>
       ['style','value'].includes(key) && value && Object.keys(value).length===0 ? undefined : value);
   }
@@ -227,7 +230,7 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   exportDesign(components=false) {
     const data=components?{format:'desk-display-components',version:1,widgets:this.selectedWidgets()}:
-      {format:'desk-display-layout',version:1,layout:this.layout,doorbell:this.doorbell};
+      {format:'desk-display-layout',version:1,layout:this.documentLayout(),doorbell:this.doorbell};
     const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
     const link=this.element('a',{href:url,download:components?'desk-display-components.json':'desk-display-layout.json'});
     link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -237,13 +240,37 @@ export class DeskDisplayPanel extends HTMLElement {
     try {
       const data=JSON.parse(await file.text());let layout,doorbell;
       if(data.version!==1)throw new Error('Unbekannte Dateiversion.');
-      if(data.format==='desk-display-components') {layout=structuredClone(this.layout);layout.widgets.push(...data.widgets);doorbell=this.doorbell;}
+      if(data.format==='desk-display-components') {layout=structuredClone(this.documentLayout());const page=this.pageIndex?layout.pages[this.pageIndex-1]:layout;page.widgets.push(...data.widgets);doorbell=this.doorbell;}
       else if(data.format==='desk-display-layout'){layout=data.layout;doorbell=data.doorbell;}
       else throw new Error('Keine Desk-Display-Datei.');
       await this._hass.callWS({type:'desk_display/preview',layout,doorbell,overlay:false});
       this.layout=layout;this.doorbell=doorbell;this.widgetIndex=0;this.selection=new Set([0]);
+      this.rootLayout=layout;this.pageIndex=0;
       this.draw();this.preview();this.status('Import geprüft. Zum Übertragen speichern.');
     }catch(error){this.status('Import: '+(error.message??error));}
+  }
+  selectPage(index) {
+    const root=this.documentLayout();this.pageIndex=index;this.layout=index?root.pages[index-1]:root;
+    this.widgetIndex=0;this.selection=new Set([0]);this.draw();this.preview();
+  }
+  addPage() {
+    const root=this.documentLayout();if((root.pages?.length??0)>=3)return;
+    root.page_name??='Übersicht';
+    const page={background:this.layout.background,theme:this.layout.theme??'classic',widgets:[],page_name:`Seite ${(root.pages?.length??0)+2}`};
+    (root.pages??=[]).push(page);this.selectPage(root.pages.length);
+  }
+  addTemplate(type) {
+    const states=this._hass?.states??{};
+    const make=(kind,text,entity,x,y,width,height,size=24)=>({kind,text,entity_id:entity,x,y,width,height,size,color:this.layout.theme==='material_light'?'#1d1b20':'#e6e0e9'});
+    const sensors=Object.keys(states).filter(e=>e.startsWith('sensor.')).sort();let widgets=[];
+    if(type==='energy')widgets=sensors.slice(0,3).map((e,i)=>make('sensor',states[e].attributes.friendly_name?.slice(0,80)??e,e,16,16+i*68,448,60));
+    if(type==='clock')widgets=[{...make('clock','Uhrzeit','',16,16,448,72,48),clock_format:'time'},{...make('clock','Datum','',16,92,448,40,20),clock_format:'date'}];
+    if(type==='status')widgets=Object.keys(states).filter(e=>e.startsWith('switch.')||e.startsWith('input_boolean.')).sort().slice(0,3).map((e,i)=>make('switch',states[e].attributes.friendly_name?.slice(0,80)??e,e,16,16+i*68,448,60));
+    if(type==='camera') {const camera=Object.keys(states).find(e=>e.startsWith('camera.'));if(camera)widgets=[{...make('media','','',16,16,448,248),source:camera,fps:1}];}
+    if(!widgets.length){this.status('Keine passenden HA-Entitäten gefunden.');return;}
+    if(this.layout.widgets.length+widgets.length>8 || (widgets.some(w=>w.kind==='media')&&this.layout.widgets.some(w=>w.kind==='media'))){this.status('Vorlage passt nicht: maximal acht Elemente und ein Video je Seite.');return;}
+    const group='t'+Date.now().toString(36);widgets.forEach(w=>w.group=group);this.layout.widgets.push(...widgets);
+    this.widgetIndex=this.layout.widgets.length-widgets.length;this.selection=new Set(widgets.map(w=>this.layout.widgets.indexOf(w)));this.draw();this.schedulePreview();
   }
   switchInspectorTab(tab) {
     if (!['element','display','doorbell'].includes(tab)) return;
@@ -356,7 +383,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.previewTimer = null;
     ++this.previewSequence;
     const deviceIndex = this.selected;
-    const savedLayout = structuredClone(this.layout);
+    const savedLayout = structuredClone(this.documentLayout());
+    const savedPage=this.pageIndex??0;
     const savedDoorbell = structuredClone(this.doorbell);
     this.saving=true; this.status('Wird gespeichert und übertragen …');
     try {
@@ -365,8 +393,8 @@ export class DeskDisplayPanel extends HTMLElement {
       this.devices[deviceIndex].doorbell = savedDoorbell;
       this.devices[deviceIndex].backups=result.backups??this.devices[deviceIndex].backups;
       if (deviceIndex===this.selected) this.savedSnapshot=this.editState(savedLayout,savedDoorbell);
-      const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview});
-      if (deviceIndex===this.selected && this.editState()===this.editState(savedLayout,savedDoorbell)) {
+      const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview,page:savedPage});
+      if (deviceIndex===this.selected && savedPage===(this.pageIndex??0) && this.editState()===this.editState(savedLayout,savedDoorbell)) {
         this.previewImage = `data:image/png;base64,${resultPreview.png}`;
         this.shadowRoot.querySelector('.stage img').src = this.previewImage;
       }
@@ -486,6 +514,10 @@ export class DeskDisplayPanel extends HTMLElement {
     bellSection.append(bellSettings);
     const columns = this.element('div', {class: 'columns'});
     const canvasSection = this.element('section',{class:'canvas'});
+    const pageStrip=this.element('div',{class:'element-strip','aria-label':'Seiten'});
+    [this.documentLayout(),...(this.documentLayout().pages??[])].forEach((page,index)=>{
+      const button=this.element('button',{'aria-pressed':String(index===(this.pageIndex??0))},page.page_name??'Übersicht');button.onclick=()=>this.selectPage(index);pageStrip.append(button);
+    });canvasSection.append(pageStrip);
     const well=this.element('div',{class:'preview-well'});
     const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
     const image = this.element('img', {alt: 'Vorschau der Anzeige'});
@@ -547,13 +579,26 @@ export class DeskDisplayPanel extends HTMLElement {
       'Debug-Anzeige und schnellere Bildupdates benötigen Display-Firmware 0.3.0.'));
     const displayPanel=this.element('div',{'data-pane':'display',role:'tabpanel'});
     displayPanel.append(...settings.childNodes);settings.append(displayPanel);
+    const pagesStart=displayPanel.childNodes.length;
+    this.field(displayPanel,'Seitenname',this.layout.page_name??'Übersicht',value=>this.layout.page_name=value,{maxlength:20});
+    this.field(displayPanel,'Automatischer Seitenwechsel (0 = aus, Sekunden)',this.documentLayout().rotation??0,value=>this.documentLayout().rotation=Number(value),{type:'number',min:0,max:300});
+    const addPage=this.element('button',{class:'secondary'},'Seite hinzufügen');addPage.disabled=(this.documentLayout().pages?.length??0)>=3;addPage.onclick=()=>this.addPage();displayPanel.append(addPage);
+    const removePage=this.element('button',{class:'secondary'},'Diese Seite entfernen');removePage.disabled=!this.pageIndex;
+    removePage.onclick=()=>{this.documentLayout().pages.splice(this.pageIndex-1,1);this.selectPage(0);};displayPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
+    this.wrapFields(displayPanel,pagesStart,'pages','Seiten & Wechsel');
+    const templatesStart=displayPanel.childNodes.length;
+    for(const [type,label] of [['energy','Drei HA-Werte'],['status','Schalterübersicht'],['clock','Uhrzeit mit Datum'],['camera','Kameraansicht']]){
+      const button=this.element('button',{class:'secondary'},label);button.onclick=()=>this.addTemplate(type);displayPanel.append(button);
+    }
+    displayPanel.append(this.element('small',{},'Vorlagen ergänzen die Seite und verwenden vorhandene HA-Entitäten. Entitäten anschließend anpassen. Eigene Komponenten unter Sicherungen & Dateien wiederverwenden.'));
+    this.wrapFields(displayPanel,templatesStart,'templates','Vorlagen');
     const filesStart=displayPanel.childNodes.length;
     const exportButton=this.element('button',{class:'secondary'},'Layout exportieren');exportButton.onclick=()=>this.exportDesign();displayPanel.append(exportButton);
     const exportComponents=this.element('button',{class:'secondary'},'Auswahl als Komponente exportieren');exportComponents.onclick=()=>this.exportDesign(true);displayPanel.append(exportComponents);
     const importInput=this.element('input',{type:'file',accept:'.json,application/json','aria-label':'Layout oder Komponenten importieren'});importInput.onchange=()=>this.importDesign(importInput.files[0]);displayPanel.append(this.element('label',{},'Layout / Komponenten importieren'),importInput);
     for(const backup of this.devices[this.selected].backups??[]) {
       const button=this.element('button',{class:'secondary'},`Sicherung laden: ${new Date(backup.at).toLocaleString()}`);
-      button.onclick=()=>{this.layout=structuredClone(backup.layout);this.doorbell=structuredClone(backup.doorbell);this.widgetIndex=0;this.selection=new Set([0]);this.draw();this.preview();this.status('Sicherung geladen. Zum Wiederherstellen speichern.');};displayPanel.append(button);
+      button.onclick=()=>{this.layout=structuredClone(backup.layout);this.rootLayout=this.layout;this.pageIndex=0;this.doorbell=structuredClone(backup.doorbell);this.widgetIndex=0;this.selection=new Set([0]);this.draw();this.preview();this.status('Sicherung geladen. Zum Wiederherstellen speichern.');};displayPanel.append(button);
     }
     displayPanel.append(this.element('small',{},'HA behält die drei vorherigen gespeicherten Layouts. Import und Wiederherstellung ändern zuerst nur den Entwurf. Dateien enthalten keine Geräte- oder WLAN-Schlüssel.'));
     this.wrapFields(displayPanel,filesStart,'files','Sicherungen & Dateien');
@@ -837,7 +882,7 @@ export class DeskDisplayPanel extends HTMLElement {
   async preview(quiet = false) {
     const sequence=++this.previewSequence;
     try {
-      const result=await this._hass.callWS({type:'desk_display/preview',layout:this.layout,doorbell:this.doorbell,overlay:this.overlayPreview,simulation:this.simulation});
+      const result=await this._hass.callWS({type:'desk_display/preview',layout:this.documentLayout(),doorbell:this.doorbell,overlay:this.overlayPreview,simulation:this.simulation,page:this.pageIndex??0});
       if(sequence!==this.previewSequence)return;
       this.previewImage=`data:image/png;base64,${result.png}`;
       this.shadowRoot.querySelector('.stage img').src=this.previewImage;
