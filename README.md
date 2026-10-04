@@ -367,3 +367,7 @@ Doppelklick auf ein Element öffnet seine Inhalte; Rechtsklick bietet Bearbeiten
 ## Version 0.22.0: Freies Klingel-Layout und Kameraalter
 
 Eigener Layouteditor für Kamera, Titel, Türstatus und zusätzliche Klingelaktionen. Übernehmen ändert zunächst nur den Entwurf. Bei Streamausfall bleibt das letzte Kamerabild mit sichtbarer Altersmarkierung erhalten. Status-Chips erhalten optional ein HA-Icon. Alle Erweiterungen aus 0.17 bis 0.21 sind enthalten; Firmware 0.7.0 wird nur für Langdruck, unmittelbares Touch-Feedback und Slider-Ziehen benötigt.
+
+## Version 0.22.1: Klingel-Layout und Abschlusskorrekturen
+
+Validiertes Übernehmen des Klingel-Layouts, korrekte Rückmeldung bei Langdruck, gesperrte Positionseingaben und erhaltene Kamerabilder mit Altersstatus. Enthält alle Erweiterungen 0.17–0.22 und Firmware 0.7.0.

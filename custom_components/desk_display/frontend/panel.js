@@ -356,8 +356,14 @@ export class DeskDisplayPanel extends HTMLElement {
     const close=this.element('button',{class:'secondary'},'Zurück ohne Übernehmen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);
     const child=this.element('desk-display-panel');child.isOverlayDesigner=true;child.loaded=true;child.devices=[{...this.devices[this.selected],layout:structuredClone(this.doorbell.layout??base),ota_update:false,backups:[]}];child.layout=child.devices[0].layout;child.loadDoorbell();
     child._hass={states:this._hass.states,callWS:async message=>{
-      if(message.type==='desk_display/save'){this.doorbell.layout=structuredClone(message.layout);dialog.close();dialog.remove();this.draw();this.preview();this.status('Klingel-Layout übernommen. Zum Gerät übertragen: speichern.');return {sent:false,backups:[]};}
-      if(message.type==='desk_display/preview')return this._hass.callWS({...message,layout:this.documentLayout(),doorbell:{...this.doorbell,layout:message.layout},overlay:true,page:this.pageIndex??0});
+      if(['desk_display/save','desk_display/preview'].includes(message.type)) {
+        const camera=message.layout.widgets.find(w=>w.kind==='media'),opener=message.layout.widgets.find(w=>w.role==='door_open');
+        const bell={...this.doorbell,layout:message.layout,camera:camera?.source??this.doorbell.camera};
+        if(opener){bell.open_label=opener.text;bell.open_entity_id=opener.entity_id;}
+        const result=await this._hass.callWS({...message,type:'desk_display/preview',layout:this.documentLayout(),doorbell:bell,overlay:true,page:this.pageIndex??0});
+        if(message.type==='desk_display/preview')return result;
+        this.doorbell=structuredClone(bell);dialog.close();dialog.remove();this.draw();this.preview();this.status('Klingel-Layout gespeichert im Entwurf. Zum Display bitte speichern und übertragen.');return {sent:false,backups:[]};
+      }
       return this._hass.callWS(message);
     }};
     child.draw();dialog.append(child);this.shadowRoot.append(dialog);dialog.showModal();child.preview();
@@ -790,7 +796,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.field(pagesPanel,'Automatischer Seitenwechsel (0 = aus, Sekunden)',this.documentLayout().rotation??0,value=>this.documentLayout().rotation=Number(value),{type:'number',min:0,max:300});
     const addPage=this.element('button',{class:'secondary'},'Seite hinzufügen');addPage.disabled=(this.documentLayout().pages?.length??0)>=3;addPage.onclick=()=>this.addPage();pagesPanel.append(addPage);
     const removePage=this.element('button',{class:'secondary'},'Diese Seite entfernen');removePage.disabled=!this.pageIndex;
-    removePage.onclick=()=>{this.documentLayout().pages.splice(this.pageIndex-1,1);this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
+    removePage.onclick=()=>{const root=this.documentLayout(),removed=this.pageIndex;root.pages.splice(removed-1,1);root.page_rules=(root.page_rules??[]).filter(rule=>rule.page!==removed).map(rule=>({...rule,page:rule.page>removed?rule.page-1:rule.page}));this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
     pagesPanel.append(this.element('h2',{},'Seiten bei HA-Ereignissen anzeigen'));
     const rules=this.documentLayout().page_rules??[];
     for(const [index,rule] of rules.entries()) {
@@ -1023,7 +1029,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const positionStart=settings.childNodes.length;
       for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,480],['height','Höhe',1,320]]]) {
         const row = this.element('div',{class:'row'});
-        for (const [key,title,min,max] of fields) this.field(row,title,widget[key],value=>{widget[key]=Number(value);this.refreshHits();},{type:'number',min,max,step:1,'data-field':key});
+        for (const [key,title,min,max] of fields) this.field(row,title,widget[key],value=>{widget[key]=Number(value);this.refreshHits();},{type:'number',min,max,step:1,disabled:!!widget.locked,'data-field':key});
         settings.append(row);
       }
       this.wrapFields(settings,positionStart,'position','Position & Größe');

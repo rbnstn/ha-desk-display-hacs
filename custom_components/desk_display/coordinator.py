@@ -212,13 +212,14 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                     self.page_index=int(entity_id);self.page_deadline=0;self.temporary_page=None
                     await self.async_refresh();return
                 widget=widget_at(self.last_layout,event["x"],event["y"])
+                feedback_entity=widget.get('entity_id') or entity_id
                 state = self.hass.states.get(entity_id)
                 if action_available(state, domain):
                     key=(entity_id,service)
                     if widget.get('config',{}).get('confirm') and (not self.confirm_action or self.confirm_action[0]!=key or monotonic()>self.confirm_action[1]):
-                        self.confirm_action=(key,monotonic()+5);self.action_feedback[entity_id]=('Erneut tippen zum Bestätigen',monotonic()+5);await self.async_refresh();return
+                        self.confirm_action=(key,monotonic()+5);self.action_feedback[feedback_entity]=('Erneut tippen zum Bestätigen',monotonic()+5);await self.async_refresh();return
                     self.confirm_action=None
-                    self.action_feedback[entity_id]=('Wird ausgeführt …',monotonic()+15)
+                    self.action_feedback[feedback_entity]=('Wird ausgeführt …',monotonic()+15)
                     if not self.doorbell_active:await self.async_refresh()
                     config=get_doorbell(self.entry.options)
                     overlay_action=self.doorbell_active and entity_id==config['open_entity_id']
@@ -242,7 +243,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                         LOGGER.warning('Display door/button action failed')
                     else:
                         result='sent'
-                    self.action_feedback[entity_id]=({'sent':'Ausgeführt','error':'Fehlgeschlagen','uncertain':'Ergebnis unklar'}[result],monotonic()+3)
+                    self.action_feedback[feedback_entity]=({'sent':'Ausgeführt','error':'Fehlgeschlagen','uncertain':'Ergebnis unklar'}[result],monotonic()+3)
                     async_call_later(self.hass,3,lambda _:self.hass.async_create_task(self.async_refresh()) if not self.touch_stopped else None)
                     if not self.doorbell_active:await self.async_refresh()
                     if overlay_action and self.doorbell_active and self.doorbell_session==session:
@@ -349,7 +350,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             states["__media_age__"]={}
             if media:
                 for session in (media,getattr(media,"preloader",None)):
-                    if session and session.signature:
+                    if session and getattr(session,"signature",None):
                         stamp=max(session.updated_at or 0,session.snapshot_at or 0)
                         if stamp:states["__media_age__"][session.signature[:3]]=monotonic()-stamp
             active=[n for n in getattr(self,"notifications",[]) if n[2]>monotonic()]

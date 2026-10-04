@@ -92,7 +92,7 @@ class MediaWorker:
         if self.frames:
             stream = self.updated_at is not None and monotonic()-self.updated_at <= 2.5
             age = monotonic()-max(self.updated_at or 0,self.snapshot_at or 0)
-            return {'state':'ready','mode':'stream' if stream else 'snapshot','age':round(age,1)}
+            return {'state':'stale' if age>5 else 'ready','mode':'stream' if stream else 'snapshot','age':round(age,1)}
         return {'state':'unavailable' if self.status=='unavailable' else 'connecting',
                 'message':MESSAGES.get(self.error_code,'Noch kein aktuelles Kamerabild vorhanden.')}
 

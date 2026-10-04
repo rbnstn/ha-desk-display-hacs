@@ -18,10 +18,11 @@ def sample_history(items,start,end,limit=120):
 
 
 async def augment_states(hass,layout,states):
-    from homeassistant.util import dt as dt_util
     charts=[w for w in layout['widgets']+layout.get('overlay',{}).get('widgets',[]) if w['kind']=='chart']
     states['__history__']={}
     states['__covers__']={}
+    if not charts and not any(w['kind']=='player' for w in layout['widgets']):return states
+    from homeassistant.util import dt as dt_util
     cache=hass.data.setdefault('desk_display_history',{})
     now=dt_util.utcnow()
     for widget in charts:
@@ -47,7 +48,7 @@ async def augment_states(hass,layout,states):
         entity=widget['entity_id'];attributes=states.get('__attributes__',{}).get(entity,{})
         signature=(attributes.get('entity_picture'),attributes.get('media_title'))
         entry=cover_cache.get(entity)
-        if entry is None or entry[1]!=signature:
+        if entry is None or entry[1]!=signature or (entry[2] is None and monotonic()-entry[0]>60):
             picture=None
             try:
                 from homeassistant.components.media_player import DATA_COMPONENT
