@@ -375,3 +375,7 @@ Validiertes Übernehmen des Klingel-Layouts, korrekte Rückmeldung bei Langdruck
 ## Version 0.22.2: Klingel-Layout, Offlinebild und Darstellungsfeinschliff
 
 Vollständige Erweiterungsserie 0.17–0.22: frei gestaltbares Klingel-Layout, erhaltene Kamerabilder mit Altersanzeige sowie korrigierte Mediensteuerung und helle Kartenfarben. Enthält alle Abschlusskorrekturen aus 0.22.1. Firmware 0.7.0 ergänzt Langdruck, Ziehen und lokale Berührungsanzeige.
+
+## Version 0.23.0: Sichere Entwürfe und Layoutprüfung
+
+Lokale Entwurfsicherung mit Wiederherstellung nach Neuladen, Vergleich von gespeichertem Design und Entwurf sowie Hinweise auf fehlende Entitäten, Überlappungen, abgeschnittene Texte und belegte Navigationsbereiche.

@@ -42,6 +42,7 @@ export class DeskDisplayPanel extends HTMLElement {
       this.devices = await this._hass.callWS({type: 'desk_display/list'});
       this.layout = structuredClone(this.devices[this.selected]?.layout);
       this.loadDoorbell();
+      this.recoveryDraft=this.recoverDraft();
       this.draw();
       if (this.layout) this.preview();
       this.startVideoPreview();
@@ -50,6 +51,63 @@ export class DeskDisplayPanel extends HTMLElement {
       this.shadowRoot.textContent = `Desk Display konnte nicht geladen werden: ${error.message ?? error}`;
     }
   }
+
+  draftKey() {
+    const id=this.devices[this.selected]?.id;
+    return id&&!this.isOverlayDesigner?`desk-display-draft:${this._hass?.user?.id??'local'}:${id}`:null;
+  }
+  persistDraft() {
+    const key=this.draftKey();if(!key || typeof localStorage==='undefined' || !this.layout)return;
+    try {
+      if(this.editState()===this.savedSnapshot){localStorage.removeItem(key);return;}
+      const draft={version:1,at:Date.now(),base:this.savedSnapshot,state:this.editState()};
+      const data=JSON.stringify(draft);if(data.length<1800000)localStorage.setItem(key,data);
+    }catch(error){this.draftError=true;}
+  }
+  recoverDraft() {
+    const key=this.draftKey();if(!key || typeof localStorage==='undefined')return null;
+    try{const draft=JSON.parse(localStorage.getItem(key));return draft?.version===1 && typeof draft.state==='string' && draft.state!==this.savedSnapshot?draft:null;}catch{return null;}
+  }
+  async restoreDraft(draft) {
+    try {
+      const state=JSON.parse(draft.state);
+      await this._hass.callWS({type:'desk_display/preview',layout:state.layout,doorbell:state.doorbell,overlay:false});
+      this.rootLayout=this.layout=state.layout;this.pageIndex=0;this.doorbell=state.doorbell;this.widgetIndex=0;this.selection=new Set([0]);this.draw();this.preview();
+      this.status('Lokaler Entwurf wiederhergestellt. Erst Speichern überträgt ihn.');
+    }catch(error){this.status(`Entwurf konnte nicht geladen werden: ${error.message??error}`);}
+  }
+  inspectLayout() {
+    const root=this.documentLayout(),issues=[];
+    [root,...(root.pages??[])].forEach((page,pageIndex)=>page.widgets.forEach((w,index)=>{
+      const add=(text,error=false)=>issues.push({page:pageIndex,index,text,error});
+      if(w.x<0 || w.y<0 || w.x+w.width>480 || w.y+w.height>320)add('Element liegt außerhalb des Displays.',true);
+      if(!w.hidden && (root.pages?.length??0)>0 && root.navigation!==false && w.y+w.height>276)add('Element liegt unter der Seitennavigation.');
+      if(this._hass?.states && w.entity_id && !this._hass.states[w.entity_id])add('Entität fehlt in Home Assistant.',true);
+      if(['sensor','button','switch','progress','gauge','chip','slider','player','weather','countdown','cost'].includes(w.kind) && !w.entity_id)add('Bitte zuerst eine Entität auswählen.',true);
+      if(['text','sensor','button','switch'].includes(w.kind) && w.text.length*w.size*.52>w.width-16)add('Beschriftung könnte abgeschnitten werden.');
+      if(!w.hidden)for(const other of page.widgets.slice(index+1))if(!other.hidden && Math.min(w.x+w.width,other.x+other.width)>Math.max(w.x,other.x) && Math.min(w.y+w.height,other.y+other.height)>Math.max(w.y,other.y)) {add('Überlappt mit einem weiteren Element. Falls beabsichtigt, ist das in Ordnung.');break;}
+    }));return issues;
+  }
+  showLayoutIssues() {
+    const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Layout prüfen'});dialog.append(this.element('h2',{},'Layout prüfen'));
+    const issues=this.inspectLayout();if(!issues.length)dialog.append(this.element('p',{},'Keine Probleme gefunden.'));
+    for(const issue of issues){const button=this.element('button',{class:'secondary'},`Seite ${issue.page+1}, Element ${issue.index+1}: ${issue.text}`);button.onclick=()=>{dialog.close();dialog.remove();this.selectPage(issue.page);this.openElementSettings(issue.index);};dialog.append(button);}
+    const close=this.element('button',{},'Schließen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);this.shadowRoot.append(dialog);dialog.showModal();
+  }
+  async compareDesign() {
+    if(!this.savedSnapshot)return;
+    const dialog=this.element('dialog',{class:'add-dialog compare-dialog','aria-label':'Design vergleichen'});
+    dialog.append(this.element('h2',{},'Gespeichert und Entwurf'));
+    const close=this.element('button',{},'Schließen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);this.shadowRoot.append(dialog);dialog.showModal();
+    try {
+      const saved=JSON.parse(this.savedSnapshot);
+      for(const [title,state] of [['Gespeichert',saved],['Aktueller Entwurf',{layout:this.documentLayout(),doorbell:this.doorbell}]]) {
+        const result=await this._hass.callWS({type:'desk_display/preview',layout:state.layout,doorbell:state.doorbell,overlay:this.overlayPreview,page:Math.min(this.pageIndex??0,state.layout.pages?.length??0)});
+        dialog.append(this.element('h3',{},title),this.element('img',{alt:title,src:`data:image/png;base64,${result.png}`,style:'width:100%;aspect-ratio:3/2'}));
+      }
+    }catch(error){dialog.append(this.element('p',{},`Vergleich: ${error.message??error}`));}
+  }
+
   startVideoPreview() {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
@@ -158,7 +216,7 @@ export class DeskDisplayPanel extends HTMLElement {
     if (!this.history || state===this.history[this.historyIndex]) return;
     this.history.splice(this.historyIndex+1);this.history.push(state);
     if (this.history.length>40) this.history.shift();
-    this.historyIndex=this.history.length-1;
+    this.historyIndex=this.history.length-1;this.persistDraft();
   }
   undoEdit(direction=-1) {
     this.recordEdit();
@@ -563,7 +621,7 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       if (deviceIndex===this.selected) this.status(result.sent ? 'Gespeichert und vom Display bestätigt.' : 'Gespeichert. Display offline oder Übertragung fehlgeschlagen; HA versucht es erneut.');
     } catch (error) { if (deviceIndex===this.selected) this.status(`Fehler: ${error.message ?? error}`); }
-    finally { this.saving=false;this.updateSaveState(); }
+    finally { this.saving=false;this.persistDraft();this.updateSaveState(); }
   }
   draw() {
     this.recordEdit();
@@ -649,6 +707,7 @@ export class DeskDisplayPanel extends HTMLElement {
     };
     header.append(deviceSelect);
     header.append(this.element('small',{id:'device-status',role:'status'},`${this.devices[this.selected].connected?'Verbunden':'Offline'} · Firmware ${this.devices[this.selected].firmware??'unbekannt'}`));
+    if(this.recoveryDraft){const banner=this.element('div',{class:'toolbar'});banner.append(this.element('small',{},this.recoveryDraft.base!==this.savedSnapshot?'Lokaler Entwurf gefunden; das gespeicherte Design hat sich inzwischen geändert.':'Ungespeicherter lokaler Entwurf gefunden.'));const restore=this.element('button',{},'Entwurf wiederherstellen');restore.onclick=()=>{const draft=this.recoveryDraft;this.recoveryDraft=null;this.restoreDraft(draft);};const discard=this.element('button',{class:'secondary'},'Entwurf verwerfen');discard.onclick=()=>{localStorage.removeItem(this.draftKey());this.recoveryDraft=null;this.draw();};banner.append(restore,discard);header.append(banner);}
     const bellSection=this.element('div',{'data-pane':'doorbell',role:'tabpanel'});
     const bellSettings=this.element('div');
     const enabled=this.element('input',{type:'checkbox','aria-label':'Klingel-Overlay aktivieren'});
@@ -741,6 +800,7 @@ export class DeskDisplayPanel extends HTMLElement {
       if(['INPUT','TEXTAREA'].includes(event.target.tagName))return;
       event.preventDefault();this.undoEdit(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);
     };
+    const check=this.element('button',{class:'secondary'},'Layout prüfen');check.onclick=()=>this.showLayoutIssues();const compare=this.element('button',{class:'secondary'},'Vergleichen');compare.onclick=()=>this.compareDesign();toolbar.append(check,compare);
     toolbar.append(add,remove,this.element('span',{id:'save-state',class:'save-state',role:'status'}),save);
     canvasSection.append(toolbar, this.element('div', {id:'status',role:'status'}));
     if (!this.devices[this.selected].touch) canvasSection.append(this.element('small', {},
