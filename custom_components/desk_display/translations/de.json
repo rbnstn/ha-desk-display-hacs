@@ -1,0 +1,26 @@
+{
+  "title": "Desk Display",
+  "config": {
+    "step": {
+      "user": {
+        "title": "E32R35T verbinden",
+        "description": "Installiere zuerst die Desk-Display-Firmware. Trage die IP vom Display und den Geräteschlüssel aus secrets.h ein.",
+        "data": {"host": "IP-Adresse oder Hostname des Displays", "key": "Geräteschlüssel"}
+      },
+      "reconfigure": {
+        "title": "Verbindung aktualisieren",
+        "description": "Trage die aktuelle Adresse und den Schlüssel desselben Displays ein.",
+        "data": {"host": "IP-Adresse oder Hostname des Displays", "key": "Geräteschlüssel"}
+      }
+    },
+    "error": {
+      "cannot_connect": "Das Display ist nicht erreichbar. Prüfe Stromversorgung, WLAN und IP-Adresse.",
+      "invalid_auth": "Der Geräteschlüssel stimmt nicht.",
+      "invalid_device": "Ungültige Adresse, unpassende Firmware oder ein anderes Display."
+    },
+    "abort": {
+      "already_configured": "Dieses Display ist bereits eingerichtet.",
+      "reconfigure_successful": "Verbindung aktualisiert."
+    }
+  }
+}
