@@ -86,7 +86,7 @@ def validate_layout(layout, nested=False):
     for widget in widgets:
         if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy", "slider", "player"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
@@ -99,6 +99,8 @@ def validate_layout(layout, nested=False):
             raise ValueError("Button: button, input_button oder script auswaehlen")
         if widget["kind"] == "switch" and domain not in SWITCH_SERVICES:
             raise ValueError("Switch: switch oder input_boolean auswaehlen")
+        if widget['kind']=='slider' and domain not in ('light','media_player','number','input_number'):raise ValueError('Slider: Licht, Mediaplayer oder Zahl waehlen')
+        if widget['kind']=='player' and domain!='media_player':raise ValueError('Bitte Mediaplayer waehlen')
         for key, minimum, maximum in (
             ("x", 0, WIDTH - 1), ("y", 0, HEIGHT - 1),
             ("width", 1, WIDTH), ("height", 1, HEIGHT), ("size", 12, 64),

@@ -2,7 +2,7 @@
 import math
 from PIL import Image, ImageDraw, ImageFont
 
-KINDS=('progress','gauge','chip','chart','energy')
+KINDS=('progress','gauge','chip','chart','energy','slider','player')
 
 
 def number(value,default=None):
@@ -16,12 +16,18 @@ def validate_config(widget):
     config=widget.get('config',{})
     if not isinstance(config,dict):raise ValueError('Ungueltige Elementkonfiguration')
     kind=widget['kind']
-    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
+    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
     if set(config)-allowed:raise ValueError('Unbekannte Elementeinstellung')
     if kind in ('progress','gauge'):
         for key,default in [('min',0),('max',100)]:
             if number(config.get(key,default)) is None:raise ValueError('Endliche Bereichsgrenzen angeben')
         if float(config.get('min',0))>=float(config.get('max',100)):raise ValueError('Maximum muss groesser als Minimum sein')
+    if kind=='button':
+        import re
+        from .actions import BUTTON_SERVICES
+        entity=config.get('hold_entity_id','')
+        if not isinstance(entity,str) or (entity and (not re.fullmatch(r'[a-z_][a-z0-9_]*\.[a-z0-9_]+',entity) or entity.split('.')[0] not in BUTTON_SERVICES)):raise ValueError('Ungueltige Aktion fuer langes Druecken')
+        if type(config.get('confirm',False)) is not bool:raise ValueError('Ungueltige Bestaetigung')
     if kind=='chart':
         if type(config.get('minutes',60)) is not int or not 15<=config.get('minutes',60)<=1440:raise ValueError('Verlauf: 15 bis 1440 Minuten')
         for key in ('min','max','threshold','factor'):
@@ -44,6 +50,30 @@ def tile(widget,states,theme):
     font=ImageFont.load_default(size=min(widget['size'],24));small=ImageFont.load_default(size=12)
     raw=states.get('__raw__',{}).get(widget['entity_id'],('unavailable',''))
     value=number(raw[0]);kind=widget['kind'];muted='#49454f' if theme=='material_light' else '#cac4d0'
+    if kind in ('slider','player'):
+        attributes=states.get('__attributes__',{}).get(widget['entity_id'],{})
+        draw.rounded_rectangle((0,0,width-1,height-1),radius=min(12,height//2),fill='#211f26')
+        if kind=='player':
+            cover=states.get('__covers__',{}).get(widget['entity_id'])
+            left=4
+            if cover:
+                from .pictures import picture_tile
+                diameter=min(48,max(1,height-56),width//3);image.alpha_composite(picture_tile(cover,diameter,diameter,'cover'),(4,4));left=diameter+8
+            draw.text((left,4),str(attributes.get('media_title',widget['text']))[:40],font=small,fill=color)
+            draw.text((left,22),str(attributes.get('media_artist',''))[:40],font=small,fill=muted)
+            for i,label in enumerate(('⏮','Pause' if raw[0]=='playing' else 'Play','⏭')):draw.text((i*width//3+4,max(0,height-24)),label,font=small,fill=color)
+            fraction=number(attributes.get('volume_level'),0);top=max(0,height-46)
+        else:
+            domain=widget['entity_id'].split('.')[0]
+            if domain=='light':fraction=number(attributes.get('brightness'),0)/255
+            elif domain=='media_player':fraction=number(attributes.get('volume_level'),0)
+            else:
+                minimum=number(attributes.get('min'),0);maximum=number(attributes.get('max'),100);fraction=0 if value is None else (value-minimum)/max(.001,maximum-minimum)
+            draw.text((6,4),widget['text'][:30],font=small,fill=color);draw.text((6,22),f'{max(0,min(1,fraction))*100:.0f} %',font=font,fill=color);top=max(0,height-16)
+        fraction=max(0,min(1,fraction));right=max(4,width-8);draw.line((6,top,right,top),fill=muted,width=4);draw.line((6,top,6+fraction*(right-6),top),fill=color,width=4);x=6+fraction*(right-6);draw.ellipse((x-5,top-5,x+5,top+5),fill=color)
+        feedback=states.get('__feedback__',{}).get(widget['entity_id'])
+        if feedback:draw.text((6,max(0,height-30)),feedback,font=small,fill='#ffd166')
+        return image
     if kind=='chart':
         points,start,end=states.get('__history__',{}).get(widget['entity_id'],([],0,1))
         factor=float(config.get('factor',1));values=[v*factor for _,v in points if v is not None]

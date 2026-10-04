@@ -17,7 +17,7 @@ from homeassistant.util import dt as dt_util
 from .const import DEFAULT_LAYOUT, DOMAIN
 from .models import get_layout
 from .render import render_frame, render_jpeg
-from .actions import action_at
+from .actions import action_at,widget_at,command_data
 from .transport import regions
 from .doorbell import current_layout, get_doorbell, is_ring, video_widget
 from .rules import entities
@@ -39,7 +39,7 @@ def action_available(state, domain):
 
 def snapshot_states(hass, layout):
     now=dt_util.now()
-    result = {'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
+    result = {'__attributes__':{},'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
         for entity in entities(widget):
             raw=hass.states.get(entity)
@@ -52,6 +52,7 @@ def snapshot_states(hass, layout):
                     raw=hass.states.get(entity)
                     result['__raw__'][entity]=(raw.state,raw.attributes.get('unit_of_measurement','')) if raw else ('unavailable','')
         state = hass.states.get(widget["entity_id"])
+        if state:result["__attributes__"][widget["entity_id"]]=dict(state.attributes)
         if state is None or state.state in ('unknown','unavailable') or (
             widget['kind']=='button' and not action_available(state,widget['entity_id'].split('.')[0])
         ):
@@ -88,6 +89,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.page_deadline=0
         self.last_confirmed_at=0
         self.firmware_updating=False
+        self.action_feedback={}
+        self.confirm_action=None
 
     @callback
     def async_start(self):
@@ -178,7 +181,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 if event["id"] != self.last_touch_id and event["revision"] == self.revision and (
                     self.last_layout == current_layout(self)
                 ):
-                    action = action_at(self.last_layout, event["x"], event["y"])
+                    action = action_at(self.last_layout, event["x"], event["y"],event.get("gesture","tap"))
                     if (self.data or {}).get('debug_overlay') and self.last_layout.get('debug') and (
                         event['x'] >= 256 and event['y'] >= 300
                     ):
@@ -190,8 +193,15 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 if domain=='desk_display' and service=='page':
                     self.page_index=int(entity_id);self.page_deadline=0
                     await self.async_refresh();return
+                widget=widget_at(self.last_layout,event["x"],event["y"])
                 state = self.hass.states.get(entity_id)
                 if action_available(state, domain):
+                    key=(entity_id,service)
+                    if widget.get('config',{}).get('confirm') and (not self.confirm_action or self.confirm_action[0]!=key or monotonic()>self.confirm_action[1]):
+                        self.confirm_action=(key,monotonic()+5);self.action_feedback[entity_id]=('Erneut tippen zum Bestätigen',monotonic()+5);await self.async_refresh();return
+                    self.confirm_action=None
+                    self.action_feedback[entity_id]=('Wird ausgeführt …',monotonic()+15)
+                    if not self.doorbell_active:await self.async_refresh()
                     config=get_doorbell(self.entry.options)
                     overlay_action=self.doorbell_active and entity_id==config['open_entity_id']
                     if overlay_action:
@@ -206,7 +216,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                     try:
                         async with asyncio.timeout(10):
                             await self.hass.services.async_call(
-                                domain, service, {"entity_id": entity_id}, blocking=True)
+                                domain, service, command_data({**widget,"entity_id":entity_id},event.get("value_x",event["x"]),state.attributes,service), blocking=True)
                     except TimeoutError:
                         result='uncertain'
                     except Exception:
@@ -214,6 +224,9 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                         LOGGER.warning('Display door/button action failed')
                     else:
                         result='sent'
+                    self.action_feedback[entity_id]=({'sent':'Ausgeführt','error':'Fehlgeschlagen','uncertain':'Ergebnis unklar'}[result],monotonic()+3)
+                    async_call_later(self.hass,3,lambda _:self.hass.async_create_task(self.async_refresh()) if not self.touch_stopped else None)
+                    if not self.doorbell_active:await self.async_refresh()
                     if overlay_action and self.doorbell_active and self.doorbell_session==session:
                         self.doorbell_feedback=result
                         self.extend_doorbell()
@@ -252,7 +265,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             before.state == after.state and
             before.attributes.get("unit_of_measurement") == after.attributes.get("unit_of_measurement") and
             before.attributes.get('supported_features') == after.attributes.get('supported_features') and
-            before.attributes.get('code_format') == after.attributes.get('code_format')
+            before.attributes == after.attributes
         ):
             return
         self.hass.async_create_task(self.async_request_refresh())
@@ -309,6 +322,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
+            states["__feedback__"]={entity:value[0] for entity,value in self.action_feedback.items() if monotonic()<value[1]}
             from .history import augment_states
             await augment_states(self.hass,layout,states)
             jpeg_video = info.get('jpeg_regions') and video_widget(layout) is not None

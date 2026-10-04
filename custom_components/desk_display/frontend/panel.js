@@ -255,10 +255,10 @@ export class DeskDisplayPanel extends HTMLElement {
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
   addWidget(kind) {
-    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy'].includes(kind))return;
+    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
-    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200]};
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0)?276:320;
@@ -308,7 +308,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -798,7 +798,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const contentStart=settings.childNodes.length;
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung']]) {
         const option=this.element('option',{value},label);
         option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
@@ -894,6 +894,8 @@ export class DeskDisplayPanel extends HTMLElement {
         const picker = this.element('ha-entity-picker');
         picker.hass = this._hass; picker.value = widget.entity_id; picker.label = 'HA-Entität';
         if (widget.kind === 'button') picker.includeDomains = ['button','input_button','script','lock'];
+        if(widget.kind==='slider')picker.includeDomains=['light','media_player','number','input_number'];
+        if(widget.kind==='player')picker.includeDomains=['media_player'];
         if (widget.kind === 'switch') picker.includeDomains = ['switch','input_boolean'];
         picker.addEventListener('value-changed', event => {
           if (event.detail.value !== widget.entity_id) {
@@ -930,6 +932,11 @@ export class DeskDisplayPanel extends HTMLElement {
           settings.append(mode,this.element('small',{},'Der ursprüngliche HA-Wert wird geprüft, bevor der Faktor angewendet wird. Der Ersatzwert erhält dieselbe Umrechnung und Einheit.'));
           this.wrapFields(settings,valueStart,'values','Umrechnung & Ersatzwert');
         }
+        if(widget.kind==='button') {
+          const config=widget.config??={};const hold=this.element('ha-entity-picker');hold.hass=this._hass;hold.label='Aktion bei langem Drücken (optional)';hold.includeDomains=['button','input_button','script','lock'];hold.value=config.hold_entity_id??'';hold.addEventListener('value-changed',event=>{config.hold_entity_id=event.detail.value??'';this.schedulePreview();});settings.append(hold);
+          const confirm=this.element('input',{type:'checkbox'});confirm.checked=!!config.confirm;confirm.onchange=()=>{config.confirm=confirm.checked;this.schedulePreview();};const label=this.element('label');label.append(confirm,document.createTextNode('Vor Ausführung durch zweites Tippen bestätigen'));settings.append(label,this.element('small',{},'Langes Drücken (ab 0,7 s) und sofortiges Berührungsfeedback benötigen Firmware 0.7.0.'));
+        }
+        if(['slider','player'].includes(widget.kind))settings.append(this.element('small',{},'Bedienung erfolgt ausschließlich am Gerät. Slider übernimmt den Bereich der HA-Entität. Mediensteuerung: unten Zurück / Play-Pause / Weiter, darüber Lautstärke.'));
         if (widget.kind !== 'sensor') settings.append(this.element('small', {}, widget.kind === 'button'
           ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
           : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));

@@ -351,3 +351,7 @@ Fortschrittsbalken und Ringanzeigen mit Minimum, Maximum und Einheit. Status-Chi
 ## Version 0.18.0: Verlauf und Energiefluss
 
 Verlaufsdiagramme aus HA-Recorder: Zeitfenster, Faktor, Einheit, automatische oder feste Grenzen und Grenzwert. Maximal 120 Punkte, Cache für eine Minute. PV-Energiefluss mit vier HA-Leistungswerten und konfigurierbaren Vorzeichen für Netz und Batterie.
+
+## Version 0.19.0: Touch-Feedback, Slider und Mediensteuerung
+
+Buttons können eine zweite Aktion für langes Drücken und eine Bestätigung durch erneutes Tippen erhalten. Feedback zeigt laufende Ausführung, Erfolg und Fehler. Slider für Licht, Lautstärke und HA-Zahlen; Mediaplayer mit Titel, Interpret, Cover und Steuerung. Firmware 0.7.0 ergänzt sofortiges Berührungsfeedback, Langdruck und Slider-Ziehen; bestehende Touch-Firmware bleibt für normales Tippen kompatibel.
