@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.7.1**, Home Assistant **2026.9 oder neuer**.
+Version **0.8.0**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -246,3 +246,29 @@ Entität, Stil und Größe und werden innerhalb des Displays leicht versetzt.
 Die oberste Ebene bestimmt auch das Touch-Ziel. Videofelder lassen sich nicht
 duplizieren, da weiterhin eine Videoquelle pro Ansicht unterstützt wird.
 Anschließend **Speichern & übertragen**. Kein Firmware-Update erforderlich.
+
+## Werte, Uhrzeit und Bilder ab 0.8.0
+
+HA-Werte zeigen die Beschriftung links und den Wert rechts. Bei hohen Karten
+stehen beide auf getrennten Zeilen. Im Designer sind Umrechnungsfaktor, eigene
+Einheit, Nachkommastellen und Vorzeichenwechsel einstellbar. Beispiel: Faktor
+0,001 + Einheit kW rechnet 2500 W in 2,5 kW um. Vorzeichenwechsel multipliziert
+zusätzlich mit -1. Eine leere eigene Einheit blendet die Einheit aus; der Button
+**HA-Einheit verwenden** stellt die ursprüngliche Einheit wieder her. Diese
+Änderungen betreffen nur die Anzeige, nicht die HA-Entität.
+
+Eine optionale Ersatz-Entität übernimmt die Anzeige bei 0, fehlendem Wert oder
+beidem. Geprüft wird der ursprüngliche HA-Wert vor der Umrechnung; fehlend sind
+unbekannt, nicht verfügbar, null oder leer. Auch Änderungen des Ersatzwerts lösen
+eine Aktualisierung aus. Ist der Ersatz ebenfalls nicht verfügbar, erscheint
+Nicht verfügbar. Umrechnung und eigene Einheit gelten auch für den Ersatz.
+
+Neue Elementtypen **Uhrzeit / Datum** und **Bild / Logo** lassen sich frei
+positionieren und vergrößern. Die Uhr verwendet die HA-Zeitzone und zeigt Minuten;
+sie aktualisiert sich spätestens etwa zehn Sekunden nach dem Minutenwechsel.
+Bilder als PNG, JPEG oder WebP hochladen (maximal 5 MB Eingabe); der Designer
+verkleinert sie auf maximal 480 × 320 und 100 KB. Transparente PNG-Logos werden
+unterstützt. Vollständige Anzeige oder zugeschnittenes Füllen ist wählbar. Bilder
+werden im Layout gespeichert; externe Bild-URLs und SVG sind nicht unterstützt.
+Nach dem HACS-Update HA neu starten und den Designer mit Strg+F5 neu laden.
+Kein Firmware-Update erforderlich.

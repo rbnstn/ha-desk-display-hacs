@@ -16,11 +16,11 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const picker of this.shadowRoot?.querySelectorAll?.('ha-entity-picker') ?? []) picker.hass = value;
     if (this.isConnected && this.loaded && this.layout && previous &&
         this.layout.widgets.some(widget => {
-          if (widget.kind === 'text') return false;
-          const before = previous.states?.[widget.entity_id];
-          const after = value.states?.[widget.entity_id];
-          return before?.state !== after?.state ||
-            before?.attributes?.unit_of_measurement !== after?.attributes?.unit_of_measurement;
+          if (['text','clock','image','media'].includes(widget.kind)) return false;
+          return [widget.entity_id,widget.value?.fallback_entity_id].filter(Boolean).some(entity=>{
+            const before=previous.states?.[entity],after=value.states?.[entity];
+            return before?.state!==after?.state || before?.attributes?.unit_of_measurement!==after?.attributes?.unit_of_measurement;
+          });
         })) this.schedulePreview(true);
   }
   connectedCallback() {
@@ -51,7 +51,7 @@ export class DeskDisplayPanel extends HTMLElement {
   startVideoPreview() {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
-      if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => w.kind === 'media')) && !this.previewTimer) this.preview(true);
+      if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => ['media','clock'].includes(w.kind))) && !this.previewTimer) this.preview(true);
       if (this.isConnected) this.refreshDoorbellStatus();
     }, 1000);
   }
@@ -174,6 +174,31 @@ export class DeskDisplayPanel extends HTMLElement {
     if (!positions[alignment]) return;
     const [axis,value]=positions[alignment];widget[axis]=value;
     this.draw(); this.schedulePreview();
+  }
+  async uploadPicture(file, widget) {
+    if (!file || file.size>5000000 || !['image/png','image/jpeg','image/webp'].includes(file.type)) {
+      this.status('Bitte PNG, JPEG oder WebP bis 5 MB auswählen.');return;
+    }
+    try {
+      const url=URL.createObjectURL(file);
+      const image=new Image();
+      try {image.src=url;await image.decode();} finally {URL.revokeObjectURL(url);}
+      if (image.naturalWidth*image.naturalHeight>20000000) throw new Error('Bild ist zu groß.');
+      const canvas=document.createElement('canvas');
+      let scale=Math.min(1,480/image.naturalWidth,320/image.naturalHeight),source;
+      for (let attempt=0;attempt<5;attempt++) {
+        canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));
+        canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+        canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+        source=canvas.toDataURL('image/png');
+        if (source.length<=133358) break;
+        scale*=.75;
+      }
+      if (source.length>133358) throw new Error('Bild lässt sich nicht ausreichend verkleinern.');
+      if (!this.layout.widgets.includes(widget)) return;
+      widget.image=source;widget.fit ??= 'contain';
+      this.draw();this.schedulePreview();this.status('Bild vorbereitet. Zum Übertragen speichern.');
+    } catch(error) {this.status('Bild: '+(error.message ?? error));}
   }
   draw() {
     this.shadowRoot.replaceChildren();
@@ -344,12 +369,16 @@ export class DeskDisplayPanel extends HTMLElement {
       alignment.onchange=()=>this.alignSelected(alignment.value);
       settings.append(alignment,this.element('small',{},'Ausrichtung bezieht sich auf das ganze Display. Die oberste Ebene bestimmt auch das Touch-Ziel. Maximal acht Elemente und ein Videofeld.'));
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild / Logo'],['clock','Uhrzeit / Datum']]) {
         kind.append(this.element('option',{value},label));
       }
       kind.value = widget.kind;
       kind.onchange = () => {
         widget.kind = kind.value;
+        if (widget.kind!=='sensor') delete widget.value;
+        if (widget.kind!=='clock') delete widget.clock_format;
+        if (widget.kind!=='image') {delete widget.image;delete widget.fit;}
+        if (['text','image','clock'].includes(widget.kind)) widget.entity_id='';
         if (widget.kind === 'media') {
           widget.source = widget.entity_id.startsWith('camera.') ? widget.entity_id : (widget.source ?? '');
           widget.width = Math.min(widget.width,160); widget.height = Math.min(Math.max(widget.height,90),120);
@@ -364,7 +393,20 @@ export class DeskDisplayPanel extends HTMLElement {
       };
       settings.append(kind);
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
-      if (widget.kind === 'media') {
+      if (widget.kind === 'image') {
+        const upload=this.element('input',{type:'file',accept:'image/png,image/jpeg,image/webp','aria-label':'Bild oder Logo hochladen'});
+        upload.onchange=()=>this.uploadPicture(upload.files[0],widget);
+        const fit=this.element('select',{'aria-label':'Bildanpassung'});
+        fit.append(this.element('option',{value:'contain'},'Vollständig anzeigen'),this.element('option',{value:'cover'},'Feld füllen / zuschneiden'));
+        fit.value=widget.fit ?? 'contain';fit.onchange=()=>{widget.fit=fit.value;this.schedulePreview();};
+        settings.append(upload,fit,this.element('small',{},'PNG, JPEG oder WebP; wird vor dem Speichern verkleinert. Transparente Logos werden unterstützt.'));
+      } else if (widget.kind === 'clock') {
+        const format=this.element('select',{'aria-label':'Uhrzeitformat'});
+        for (const [value,label] of [['time','Uhrzeit · HH:MM'],['date','Datum · TT.MM.JJJJ'],['datetime','Datum und Uhrzeit']])
+          format.append(this.element('option',{value},label));
+        format.value=widget.clock_format ?? 'time';format.onchange=()=>{widget.clock_format=format.value;this.schedulePreview();};
+        settings.append(format,this.element('small',{},'Verwendet die Zeitzone von Home Assistant. Die Uhrzeit aktualisiert sich innerhalb von etwa zehn Sekunden nach dem Minutenwechsel.'));
+      } else if (widget.kind === 'media') {
         const picker = this.element('ha-entity-picker');
         picker.hass = this._hass; picker.includeDomains = ['camera']; picker.label = 'HA-Kamera';
         picker.value = widget.source?.startsWith('camera.') ? widget.source : '';
@@ -399,6 +441,27 @@ export class DeskDisplayPanel extends HTMLElement {
         // Also works before HA has lazy-loaded its entity picker.
         const placeholder = widget.kind === 'button' ? 'script.tuer_oeffnen' : widget.kind === 'switch' ? 'switch.licht' : 'sensor.pv_leistung';
         this.field(settings, 'Entitäts-ID', widget.entity_id, value => {widget.entity_id = value;picker.value = value;}, {placeholder,'data-field':'entity_id'});
+        if (widget.kind==='sensor') {
+          settings.append(this.element('small',{},'Beschriftung links, Wert rechts. Zahlenänderungen betreffen nur die Displayanzeige.'));
+          const value=widget.value ??= {};
+          this.field(settings,'Umrechnungsfaktor',value.factor ?? 1,input=>value.factor=Number(input.replace(',','.')),{type:'text',inputmode:'decimal'});
+          this.field(settings,'Eigene Einheit (leer = ohne Einheit)',value.unit ?? '',input=>value.unit=input,{maxlength:16});
+          const haUnit=this.element('button',{class:'secondary'},'HA-Einheit verwenden');
+          haUnit.onclick=()=>{delete value.unit;this.draw();this.schedulePreview();};
+          settings.append(haUnit,this.element('small',{},'Ohne eigene Einheit wird die HA-Einheit übernommen. Beispiel: Faktor 0,001 und Einheit kW für einen Wert in W.'));
+          this.field(settings,'Nachkommastellen',value.decimals ?? 2,input=>value.decimals=Number(input),{type:'number',min:0,max:6,step:1});
+          const invert=this.element('input',{type:'checkbox','aria-label':'Vorzeichen wechseln'});
+          invert.checked=!!value.invert;invert.onchange=()=>{value.invert=invert.checked;this.schedulePreview();};
+          const invertLabel=this.element('label');invertLabel.append(invert,document.createTextNode('Vorzeichen wechseln (+ ↔ −)'));settings.append(invertLabel);
+          const fallback=this.element('ha-entity-picker');fallback.hass=this._hass;fallback.label='Ersatz-Entität (optional)';fallback.value=value.fallback_entity_id ?? '';
+          fallback.addEventListener('value-changed',event=>{value.fallback_entity_id=event.detail.value ?? '';this.schedulePreview();});
+          settings.append(fallback);
+          const mode=this.element('select',{'aria-label':'Ersatzwert anzeigen'});
+          for (const [key,label] of [['both','Bei 0 oder fehlendem Wert'],['missing','Nur bei fehlendem Wert'],['zero','Nur bei 0']])
+            mode.append(this.element('option',{value:key},label));
+          mode.value=value.fallback_mode ?? 'both';mode.onchange=()=>{value.fallback_mode=mode.value;this.schedulePreview();};
+          settings.append(mode,this.element('small',{},'Der ursprüngliche HA-Wert wird geprüft, bevor der Faktor angewendet wird. Der Ersatzwert erhält dieselbe Umrechnung und Einheit.'));
+        }
         if (widget.kind !== 'sensor') settings.append(this.element('small', {}, widget.kind === 'button'
           ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
           : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));
@@ -413,7 +476,7 @@ export class DeskDisplayPanel extends HTMLElement {
       if (this.layout.theme?.startsWith('material_')) {
         const style = widget.style ??= {};
         const surface = this.element('input',{type:'checkbox','aria-label':'Kartenfläche anzeigen'});
-        surface.checked = style.surface ?? widget.kind !== 'text';
+        surface.checked = style.surface ?? !['text','image'].includes(widget.kind);
         surface.onchange = () => {style.surface=surface.checked;this.schedulePreview();};
         const surfaceLabel=this.element('label');surfaceLabel.append(surface,document.createTextNode('Kartenfläche anzeigen'));
         if (widget.kind !== 'media') settings.append(surfaceLabel);
@@ -424,7 +487,7 @@ export class DeskDisplayPanel extends HTMLElement {
         for (const [value,label] of [['left','Linksbündig'],['center','Zentriert'],['right','Rechtsbündig']]) align.append(this.element('option',{value},label));
         align.value=style.align ?? (widget.kind==='button'?'center':'left');
         align.onchange=()=>{style.align=align.value;this.schedulePreview();};
-        if (widget.kind !== 'media') settings.append(align);
+        if (!['media','image','sensor'].includes(widget.kind)) settings.append(align);
       }
     }
     if (this.overlayPreview) settings.replaceChildren(this.element('h2',{},'Overlay-Vorschau'),

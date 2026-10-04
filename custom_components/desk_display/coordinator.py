@@ -12,6 +12,7 @@ from homeassistant.components.lock import LockEntityFeature
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval, async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import DEFAULT_LAYOUT, DOMAIN
 from .models import get_layout
@@ -35,10 +36,16 @@ def action_available(state, domain):
 
 
 def snapshot_states(hass, layout):
-    result = {}
+    now=dt_util.now()
+    result = {'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
-        if widget["kind"] in ("text", "media"):
+        if widget["kind"] in ("text", "media", "image", "clock"):
             continue
+        if widget['kind']=='sensor':
+            for entity in (widget['entity_id'],widget.get('value',{}).get('fallback_entity_id','')):
+                if entity:
+                    raw=hass.states.get(entity)
+                    result['__raw__'][entity]=(raw.state,raw.attributes.get('unit_of_measurement','')) if raw else ('unavailable','')
         state = hass.states.get(widget["entity_id"])
         if state is None or state.state in ('unknown','unavailable') or (
             widget['kind']=='button' and not action_available(state,widget['entity_id'].split('.')[0])
@@ -211,7 +218,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         layout=current_layout(self)
         widgets=layout['widgets']+layout.get('overlay',{}).get('widgets',[])
         contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
-        if not contact_changed and not any(widget["kind"] not in ("text", "media") and widget["entity_id"] == entity_id
+        if not contact_changed and not any(widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id',''))
                    for widget in widgets):
             return
         before = event.data.get("old_state")

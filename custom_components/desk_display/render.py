@@ -13,8 +13,11 @@ def render_image(layout, states, media=None):
     layout = validate_layout(layout)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
-        if layout.get("theme") in PALETTES:
-            tile = material_tile(widget, states, media, layout["theme"])
+        if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock'):
+            styled = widget
+            if layout.get('theme') not in PALETTES:
+                styled = {**widget, 'style':{**widget.get('style',{}),'surface':False,'radius':0}}
+            tile = material_tile(styled, states, media, layout.get("theme") if layout.get('theme') in PALETTES else 'material_dark')
             image.paste(tile, (widget["x"], widget["y"]), tile)
             continue
         if widget["kind"] == "media":

@@ -3,6 +3,7 @@
 import copy
 import ipaddress
 import re
+import math
 from urllib.parse import urlsplit
 
 from .const import DEFAULT_LAYOUT, HEIGHT, PROTOCOL, WIDTH
@@ -68,15 +69,15 @@ def validate_layout(layout):
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] not in ("text", "media") and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] not in ("text", "media", "image", "clock") and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
         domain = widget["entity_id"].split(".", 1)[0]
         if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
@@ -94,6 +95,39 @@ def validate_layout(layout):
         if not isinstance(widget["color"], str) or not COLOR.fullmatch(widget["color"]):
             raise ValueError("Ungueltige Textfarbe")
         normalized = dict(widget)
+        if 'value' in widget:
+            value = widget['value']
+            if widget['kind'] != 'sensor' or not isinstance(value, dict) or not set(value) <= {'factor','unit','invert','decimals','fallback_entity_id','fallback_mode'}:
+                raise ValueError('Ungueltige Werteinstellungen')
+            factor = value.get('factor', 1)
+            if type(factor) not in (int,float) or abs(factor)>1e9 or not math.isfinite(factor):
+                raise ValueError('Ungueltiger Umrechnungsfaktor')
+            if type(value.get('invert',False)) is not bool:
+                raise ValueError('Ungueltiger Vorzeichenwechsel')
+            if 'decimals' in value and (type(value['decimals']) is not int or not 0<=value['decimals']<=6):
+                raise ValueError('Nachkommastellen: 0 bis 6')
+            unit = value.get('unit','')
+            if not isinstance(unit,str) or len(unit)>16 or any(ord(c)<32 for c in unit):
+                raise ValueError('Einheit: maximal 16 Zeichen')
+            fallback = value.get('fallback_entity_id','')
+            if not isinstance(fallback,str) or (fallback and not ENTITY.fullmatch(fallback)) or value.get('fallback_mode','both') not in ('missing','zero','both'):
+                raise ValueError('Ungueltiger Ersatzwert')
+            normalized['value'] = dict(value)
+        if widget['kind']=='clock':
+            if widget.get('clock_format','time') not in ('time','date','datetime'):
+                raise ValueError('Ungueltiges Uhrzeitformat')
+            normalized['clock_format']=widget.get('clock_format','time')
+        else:
+            normalized.pop('clock_format',None)
+        if widget['kind']=='image':
+            from .pictures import image_bytes
+            image_bytes(widget.get('image',''))
+            if widget.get('fit','contain') not in ('contain','cover'):
+                raise ValueError('Ungueltige Bildanpassung')
+            normalized['fit']=widget.get('fit','contain')
+        else:
+            normalized.pop('image',None)
+            normalized.pop('fit',None)
         if "style" in widget:
             style = widget["style"]
             if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align"}:
@@ -117,7 +151,7 @@ def validate_layout(layout):
         else:
             normalized.pop("source", None)
             normalized.pop("fps", None)
-        if normalized["kind"] in ("text", "media"):
+        if normalized["kind"] in ("text", "media", "image", "clock"):
             normalized["entity_id"] = ""
         result["widgets"].append(normalized)
     if sum(w["kind"] == "media" for w in result["widgets"]) > 1:
