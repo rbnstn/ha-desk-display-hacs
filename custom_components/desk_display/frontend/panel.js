@@ -232,6 +232,7 @@ export class DeskDisplayPanel extends HTMLElement {
         browse.onclick = () => this.browseMedia(settings,widget);
         settings.append(browse,this.element('small',{},
           'Stream-MVP: ein Videofeld, bis 160 × 120 Pixel, Ziel 2 FPS, ohne Ton. Kamera, HA-Medien oder direkte RTSP-/HTTP-/RTMP-Videoquelle. Keine Webseiten, DRM oder reine WebRTC-Quellen. Speichern startet den Stream; die Vorschau zeigt den zuletzt dekodierten Frame.'));
+        settings.append(this.element('small',{id:'media-status',role:'status'},'Zum Starten der Quelle speichern.'));
       } else if (widget.kind !== 'text') {
         const picker = this.element('ha-entity-picker');
         picker.hass = this._hass; picker.value = widget.entity_id; picker.label = 'HA-Entität';
@@ -301,6 +302,12 @@ export class DeskDisplayPanel extends HTMLElement {
       if(sequence!==this.previewSequence)return;
       this.previewImage=`data:image/png;base64,${result.png}`;
       this.shadowRoot.querySelector('.stage img').src=this.previewImage;
+      const mediaStatus = this.shadowRoot.querySelector('#media-status');
+      if (mediaStatus) {
+        const item = result.media_status?.find(item => item.index === this.widgetIndex);
+        mediaStatus.textContent = item?.message || (item?.state === 'live' ? 'Stream läuft.' :
+          item?.state === 'connecting' ? 'Verbindung zur Videoquelle wird aufgebaut …' : 'Zum Starten der Quelle speichern.');
+      }
       if (!quiet) this.status('Vorschau aktualisiert. Zum Übertragen speichern.');
     } catch(error) {if(sequence===this.previewSequence && !quiet)this.status(`Vorschau: ${error.message ?? error}`);}
   }

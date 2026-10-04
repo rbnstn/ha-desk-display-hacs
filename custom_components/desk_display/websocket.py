@@ -43,11 +43,20 @@ async def preview(hass, connection, msg):
         return
     states = snapshot_states(hass, layout)
     frames = {}
+    statuses = []
     for coordinator in hass.data.get(DOMAIN, {}).values():
         if (worker := getattr(coordinator, 'media', None)):
             frames.update(worker.frames)
+            from .media import MESSAGES
+            for index, widget in enumerate(layout['widgets']):
+                if widget['kind'] == 'media' and worker.signature == (
+                    widget['source'], widget['width'], widget['height']
+                ):
+                    statuses.append({'index':index, 'state':worker.status,
+                                     'message':MESSAGES.get(worker.error_code, '')})
     image = await hass.async_add_executor_job(render_preview, layout, states, frames)
-    connection.send_result(msg["id"], {"png": base64.b64encode(image).decode("ascii")})
+    connection.send_result(msg["id"], {"png": base64.b64encode(image).decode("ascii"),
+                                      "media_status":statuses})
 
 
 @websocket_api.websocket_command({"type": "desk_display/save", vol.Required("entry_id"): str,

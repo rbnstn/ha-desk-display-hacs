@@ -113,6 +113,15 @@ und höhere Bildraten benötigen einen weiteren Ausbau des Transports.
 
 ## Kommunikation und Support
 
+### Streamdiagnose ab 0.4.1
+
+Der Designer zeigt bei der ausgewählten gespeicherten Videoquelle den Status und
+eine eingegrenzte Fehlermeldung, etwa fehlende Kamera-Stream-URL, Anmeldung
+abgelehnt, Quelle nicht erreichbar, Timeout oder Decoder-/Formatfehler.
+FFmpeg-Ausgaben werden nur begrenzt intern ausgewertet; URLs, Passwörter und Tokens
+erscheinen nicht in diesen Meldungen oder Logs. RTSP verwendet den
+protokollspezifischen TCP-Timeout statt der allgemeinen HTTP-Timeout-Option.
+
 Die Integration nutzt die vorhandenen HA-Entitäten und kommuniziert lokal
 mit dem Display auf Port 80. Der Geräteschlüssel wird in HA gespeichert.
 Keine HA-Zugangsdaten werden auf das Display übertragen. Das Display ist

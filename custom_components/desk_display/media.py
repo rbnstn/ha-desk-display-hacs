@@ -12,9 +12,23 @@ from homeassistant.core import callback
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 
 from .models import get_layout, validate_media_source
-from .video import VideoDecoder
+from .video import VideoDecoder, VideoError
 
 LOGGER = logging.getLogger(__name__)
+
+MESSAGES = {
+    "camera_no_stream": "Diese HA-Kamera liefert keine Stream-URL. Bitte eine Live-/Substream-Entitaet statt einer Snapshot-Entitaet waehlen.",
+    "not_video": "Die ausgewaehlte Medienquelle liefert kein Video.",
+    "resolve_failed": "HA konnte die Medienquelle nicht aufloesen. Kamera-Verfuegbarkeit und Quellenwahl pruefen.",
+    "authentication": "Die Videoquelle lehnt die Anmeldung ab. Zugangsdaten in der HA-Kameraintegration pruefen.",
+    "connection": "Die Videoquelle ist vom HA-Host aus nicht erreichbar. Adresse, Stream-Port und Netzwerk pruefen.",
+    "timeout": "Die Videoquelle liefert innerhalb der Wartezeit keinen Frame. Live-/Substream und Erreichbarkeit pruefen.",
+    "decoder_options": "FFmpeg lehnt eine Stream-Option ab. FFmpeg-Version und Desk-Display-Update pruefen.",
+    "source_format": "FFmpeg kann diese Quelle nicht als Video dekodieren. Streamformat oder Substream pruefen.",
+    "source_missing": "Die Videoquelle wurde nicht gefunden (404). Quellenwahl pruefen.",
+    "ffmpeg_missing": "FFmpeg wurde auf dem HA-Host nicht gefunden.",
+    "decoder_failed": "Der Video-Decoder wurde ohne nutzbaren Frame beendet. Videoquelle oder Substream pruefen.",
+}
 
 
 async def resolve_source(hass, source):
@@ -24,13 +38,13 @@ async def resolve_source(hass, source):
     if source.startswith("camera."):
         source = await async_get_stream_source(hass, source)
         if not source:
-            raise ValueError("Camera has no decodable stream source")
+            raise VideoError("camera_no_stream")
     elif source.startswith("media-source://"):
         media = await async_resolve_media(hass, source, None)
         if not (media.mime_type.startswith("video/") or media.mime_type in (
             "application/vnd.apple.mpegurl", "application/x-mpegURL", "application/dash+xml"
         )):
-            raise ValueError("This source does not provide video")
+            raise VideoError("not_video")
         source = media.url
     # HA signs protected local media URLs. No HA token is sent to the ESP32.
     source = async_process_play_media_url(hass, source)
@@ -46,6 +60,7 @@ class MediaWorker:
         self.signature = None
         self.frames = {}
         self.status = "idle"
+        self.error_code = None
 
     @callback
     def start(self):
@@ -58,6 +73,8 @@ class MediaWorker:
     def stop(self, _event=None):
         self.signature = None
         self.frames.clear()
+        self.status = "idle"
+        self.error_code = None
         if self.task:
             self.task.cancel()
         self.task = None
@@ -79,9 +96,11 @@ class MediaWorker:
         source, width, height = signature
         while self.signature == signature:
             decoder_task = None
+            stage = "resolve"
             try:
                 async with asyncio.timeout(30):
                     url = await resolve_source(self.hass, source)
+                stage = "decode"
                 decoder = VideoDecoder(get_ffmpeg_manager(self.hass).binary, url, width, height)
                 decoder_task = asyncio.create_task(decoder.run())
                 sequence = 0
@@ -91,6 +110,7 @@ class MediaWorker:
                         self.frames[signature] = decoder.latest
                         sequence = decoder.sequence
                         self.status = "live"
+                        self.error_code = None
                         # Drain a pending touch before a firmware frame clears its event.
                         await self.coordinator._poll_touch()
                         await self.coordinator.async_refresh()
@@ -98,11 +118,13 @@ class MediaWorker:
                         await decoder_task
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as err:
                 # FFmpeg errors and URLs may contain credentials; never log them.
                 self.status = "unavailable"
+                self.error_code = err.code if isinstance(err, VideoError) else (
+                    "timeout" if isinstance(err, TimeoutError) else "resolve_failed" if stage == "resolve" else "decoder_failed")
                 self.frames.clear()
-                LOGGER.warning("Desk Display video source unavailable; retrying in 10 seconds")
+                LOGGER.warning("Desk Display video unavailable (%s); retrying in 10 seconds", self.error_code)
             finally:
                 if decoder_task is not None:
                     decoder_task.cancel()
