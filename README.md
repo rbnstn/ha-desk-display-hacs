@@ -359,3 +359,7 @@ Buttons können eine zweite Aktion für langes Drücken und eine Bestätigung du
 ## Version 0.20.0: Meldungen und automatische Seiten
 
 Neue HA-Aktionen desk_display.notify und desk_display.show_page mit Geräteauswahl, Dauer und Priorität. Meldungen überdecken keine bedienbare Fläche ohne Touch-Sperre. Seitenregeln im Designer reagieren auf Zustandswechsel und kehren nach Ablauf zur vorherigen Seite zurück. Klingelansicht hat Vorrang.
+
+## Version 0.21.0: Direktbearbeitung und globale Designs
+
+Doppelklick auf ein Element öffnet seine Inhalte; Rechtsklick bietet Bearbeiten, Duplizieren, Sperren, Ausblenden und Löschen. Globale Designvorgaben für alle Seiten mit individuellen Ausnahmen. Wiederverwendbare Design-Dateien lassen sich exportieren und mit serverseitiger Validierung importieren.

@@ -53,7 +53,7 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -84,13 +84,22 @@ def validate_layout(layout, nested=False):
         validate_page_rules(layout["page_rules"])
         if any(rule["page"]>len(result.get("pages",[])) for rule in layout["page_rules"]):raise ValueError("Zielseite existiert nicht")
         result["page_rules"]=copy.deepcopy(layout["page_rules"])
+    if 'design' in layout:
+        design=layout['design']
+        if not isinstance(design,dict) or set(design)-{'color','size','background','radius','surface'}:raise ValueError('Ungueltiges globales Design')
+        for key in ('color','background'):
+            if key in design and (not isinstance(design[key],str) or not COLOR.fullmatch(design[key])):raise ValueError('Ungueltige Designfarbe')
+        for key,low,high in (('size',12,64),('radius',0,32)):
+            if key in design and (type(design[key]) is not int or not low<=design[key]<=high):raise ValueError('Ungueltige Designgroesse')
+        if 'surface' in design and type(design['surface']) is not bool:raise ValueError('Ungueltige Designflaeche')
+        result['design']=dict(design)
     if "theme" in layout:
         if layout["theme"] not in ("classic", "material_dark", "material_light"):
             raise ValueError("Unbekanntes Display-Design")
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden", "inherit_design"}:
             raise ValueError("Ungueltiges Element")
         if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy", "slider", "player"):
             raise ValueError("Unbekannter Elementtyp")
@@ -119,7 +128,7 @@ def validate_layout(layout, nested=False):
             raise ValueError("Ungueltige Textfarbe")
         from .widgets import validate_config
         validate_config(widget)
-        for flag in ("locked","hidden"):
+        for flag in ("locked","hidden","inherit_design"):
             if type(widget.get(flag,False)) is not bool:raise ValueError("Ungueltiger Elementstatus")
         normalized = dict(widget)
         if widget['kind']=='navigation':

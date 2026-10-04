@@ -345,6 +345,24 @@ export class DeskDisplayPanel extends HTMLElement {
     valueBox.hidden=condition.op==='missing';
     select.value=condition.op;select.onchange=()=>{condition.op=select.value;valueBox.hidden=condition.op==='missing';update();};
   }
+  openElementSettings(index) {
+    this.selectWidget(index);this.groupsOpen.content=true;this.groupsOpen.arrange=false;this.draw();this.switchInspectorTab('element',true);
+    this.shadowRoot.querySelector('[data-pane=element] input[maxlength="80"]')?.focus();
+  }
+  elementMenu(index) {
+    this.selectWidget(index);
+    const widget=this.layout.widgets[index],dialog=this.element('dialog',{class:'add-dialog','aria-label':'Elementaktionen'});
+    dialog.append(this.element('h2',{},this.widgetLabel(widget)));
+    const close=()=>{dialog.close();dialog.remove();};
+    for(const [label,action] of [['Inhalt bearbeiten',()=>this.openElementSettings(index)],['Duplizieren',()=>this.duplicateSelected()],[widget.locked?'Entsperren':'Position sperren',()=>{widget.locked=!widget.locked;this.draw();this.schedulePreview();}],[widget.hidden?'Einblenden':'Ausblenden',()=>{widget.hidden=!widget.hidden;this.draw();this.schedulePreview();}],['Löschen',()=>this.removeSelected()],['Abbrechen',()=>{}]]) {
+      const button=this.element('button',{class:'secondary'},label);button.onclick=()=>{close();action();};dialog.append(button);
+    }
+    this.shadowRoot.append(dialog);dialog.showModal();
+  }
+  exportTheme() {
+    const root=this.documentLayout(),data={format:'desk-display-theme',version:1,design:root.design??{},theme:root.theme??'material_dark',background:root.background};
+    const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=this.element('a',{href:url,download:'desk-display-theme.json'});link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
   exportDesign(components=false) {
     const data=components?{format:'desk-display-components',version:1,widgets:this.selectedWidgets()}:
       {format:'desk-display-layout',version:1,layout:this.documentLayout(),doorbell:this.doorbell};
@@ -358,6 +376,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const data=JSON.parse(await file.text());let layout,doorbell;
       if(data.version!==1)throw new Error('Unbekannte Dateiversion.');
       if(data.format==='desk-display-components') {layout=structuredClone(this.documentLayout());const page=this.pageIndex?layout.pages[this.pageIndex-1]:layout;page.widgets.push(...data.widgets);doorbell=this.doorbell;}
+      else if(data.format==='desk-display-theme'){layout=structuredClone(this.documentLayout());layout.design=data.design;for(const page of [layout,...(layout.pages??[])]){page.theme=data.theme;page.background=data.background;}doorbell=this.doorbell;}
       else if(data.format==='desk-display-layout'){layout=data.layout;doorbell=data.doorbell;}
       else throw new Error('Keine Desk-Display-Datei.');
       await this._hass.callWS({type:'desk_display/preview',layout,doorbell,overlay:false});
@@ -669,7 +688,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.layout.widgets.forEach((widget,index)=>{
       const choose=this.element('button',{'aria-pressed':String(this.selection?.has(index)||index===this.widgetIndex),'data-index':index,title:this.widgetLabel(widget)},`${widget.locked?'🔒 ':''}${widget.hidden?'◌ ':''}${index+1}. ${this.widgetLabel(widget)}`);
       if(widget.group)choose.append(this.element('span',{class:'group-badge'},this.groupLabel(widget.group)));
-      choose.disabled=this.overlayPreview;choose.onclick=event=>this.selectWidget(index,event.ctrlKey||event.metaKey);elementStrip.append(choose);
+      choose.oncontextmenu=event=>{event.preventDefault();this.elementMenu(index);};choose.ondblclick=()=>this.openElementSettings(index);choose.disabled=this.overlayPreview;choose.onclick=event=>this.selectWidget(index,event.ctrlKey||event.metaKey);elementStrip.append(choose);
     });
     canvasSection.append(elementStrip);
     canvasSection.append(this.element('small', {class:'canvas-meta'}, this.overlayPreview ?
@@ -719,6 +738,15 @@ export class DeskDisplayPanel extends HTMLElement {
       'Debug-Anzeige und schnellere Bildupdates benötigen Display-Firmware 0.3.0.'));
     const displayPanel=this.element('div',{'data-pane':'display',role:'tabpanel'});
     displayPanel.append(...settings.childNodes);settings.append(displayPanel);
+    const designStart=displayPanel.childNodes.length,design=this.documentLayout().design??{};
+    const setDesign=(key,value)=>{this.documentLayout().design={...design,...this.documentLayout().design,[key]:value};};
+    this.field(displayPanel,'Globale Textfarbe',design.color??'#e6e0e9',v=>setDesign('color',v),{type:'color'});
+    this.field(displayPanel,'Globale Schriftgröße',design.size??24,v=>setDesign('size',Number(v)),{type:'number',min:12,max:64});
+    this.field(displayPanel,'Globale Kartenfarbe',design.background??'#211f26',v=>setDesign('background',v),{type:'color'});
+    this.field(displayPanel,'Globaler Eckenradius',design.radius??16,v=>setDesign('radius',Number(v)),{type:'number',min:0,max:32});
+    const themeExport=this.element('button',{class:'secondary'},'Design als Datei exportieren');themeExport.onclick=()=>this.exportTheme();displayPanel.append(themeExport);
+    const resetDesign=this.element('button',{class:'secondary'},'Globale Vorgaben entfernen');resetDesign.onclick=()=>{delete this.documentLayout().design;this.draw();this.schedulePreview();};displayPanel.append(resetDesign,this.element('small',{},'Gilt für alle Seiten. Einzelne Elemente können unter Aussehen die Übernahme deaktivieren. Design-Dateien lassen sich unter Sicherungen & Dateien importieren.'));
+    this.wrapFields(displayPanel,designStart,'globaldesign','Globales Design');
     const deviceStart=displayPanel.childNodes.length;
     const deviceSettings=this.documentLayout().device??{brightness:100,night_enabled:false,night_start:'22:00',night_end:'07:00',night_brightness:15,ring_brightness:100};
     const setDevice=(key,value)=>{this.documentLayout().device={...deviceSettings,...this.documentLayout().device,[key]:value};};
@@ -975,6 +1003,7 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       this.wrapFields(settings,positionStart,'position','Position & Größe');
       const appearanceStart=settings.childNodes.length;
+      const inherit=this.element('input',{type:'checkbox'});inherit.checked=widget.inherit_design??true;inherit.onchange=()=>{widget.inherit_design=inherit.checked;this.schedulePreview();};const inheritLabel=this.element('label');inheritLabel.append(inherit,document.createTextNode('Globales Design übernehmen'));settings.append(inheritLabel);
       this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
       if (this.layout.theme?.startsWith('material_')) {
@@ -1048,6 +1077,8 @@ export class DeskDisplayPanel extends HTMLElement {
       const hit = this.element('button',{class:`hit ${this.selection?.has(index)?'active':''}`,'aria-label':`Element ${index+1}: ${widget.text}`});
       const position = () => Object.assign(hit.style,{left:`${widget.x/4.8}%`,top:`${widget.y/3.2}%`,width:`${widget.width/4.8}%`,height:`${widget.height/3.2}%`});
       position();
+      hit.ondblclick=()=>this.openElementSettings(index);
+      hit.oncontextmenu=event=>{event.preventDefault();this.elementMenu(index);};
       hit.onkeydown=event=>{
         if(widget.locked)return;
         const moves={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
