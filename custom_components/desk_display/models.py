@@ -3,6 +3,7 @@
 import copy
 import ipaddress
 import re
+from urllib.parse import urlsplit
 
 from .const import DEFAULT_LAYOUT, HEIGHT, PROTOCOL, WIDTH
 from .actions import BUTTON_SERVICES, SWITCH_SERVICES
@@ -10,6 +11,17 @@ from .actions import BUTTON_SERVICES, SWITCH_SERVICES
 COLOR = re.compile(r"#[0-9a-fA-F]{6}\Z")
 ENTITY = re.compile(r"[a-z_][a-z0-9_]*\.[a-z0-9_]+\Z")
 HOSTNAME = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?\Z")
+
+
+def validate_media_source(source):
+    if not isinstance(source, str) or not source or len(source) > 2048 or any(ord(c) < 32 for c in source):
+        raise ValueError("Bitte eine Kamera, HA-Medienquelle oder Video-URL angeben")
+    if ENTITY.fullmatch(source) and source.startswith("camera."):
+        return source
+    url = urlsplit(source)
+    if url.scheme not in ("media-source", "http", "https", "rtsp", "rtsps", "rtmp", "rtmps") or not url.netloc:
+        raise ValueError("Unterstuetzt: camera.*, media-source://, HTTP(S), RTSP(S), RTMP(S)")
+    return source
 
 
 def validate_host(value):
@@ -54,15 +66,15 @@ def validate_layout(layout):
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or set(widget) != keys:
+        if not isinstance(widget, dict) or set(widget) not in (keys, keys | {"source"}):
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] != "text" and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] not in ("text", "media") and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
         domain = widget["entity_id"].split(".", 1)[0]
         if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
@@ -80,9 +92,17 @@ def validate_layout(layout):
         if not isinstance(widget["color"], str) or not COLOR.fullmatch(widget["color"]):
             raise ValueError("Ungueltige Textfarbe")
         normalized = dict(widget)
-        if normalized["kind"] == "text":
+        if normalized["kind"] == "media":
+            normalized["source"] = validate_media_source(widget.get("source", ""))
+            if widget["width"] > 160 or widget["height"] > 120:
+                raise ValueError("Stream-MVP: maximal 160 x 120 Pixel")
+        else:
+            normalized.pop("source", None)
+        if normalized["kind"] in ("text", "media"):
             normalized["entity_id"] = ""
         result["widgets"].append(normalized)
+    if sum(w["kind"] == "media" for w in result["widgets"]) > 1:
+        raise ValueError("Stream-MVP: eine Videoquelle pro Display")
     return result
 
 

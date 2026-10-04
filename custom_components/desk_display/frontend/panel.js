@@ -25,8 +25,11 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   connectedCallback() {
     if (this._hass && !this.loaded) this.load();
+    if (this.loaded) this.startVideoPreview();
   }
   disconnectedCallback() {
+    clearInterval(this.videoPreviewTimer);
+    this.videoPreviewTimer = null;
     clearTimeout(this.previewTimer);
     this.previewTimer = null;
     ++this.previewSequence;
@@ -38,10 +41,44 @@ export class DeskDisplayPanel extends HTMLElement {
       this.layout = structuredClone(this.devices[this.selected]?.layout);
       this.draw();
       if (this.layout) this.preview();
+      this.startVideoPreview();
     } catch (error) {
       this.loaded = false;
       this.shadowRoot.textContent = `Desk Display konnte nicht geladen werden: ${error.message ?? error}`;
     }
+  }
+  startVideoPreview() {
+    if (this.videoPreviewTimer) return;
+    this.videoPreviewTimer = setInterval(() => {
+      if (this.isConnected && this.layout?.widgets.some(w => w.kind === 'media') && !this.previewTimer) this.preview(true);
+    }, 1000);
+  }
+  async browseMedia(parent, widget, id = null, history = []) {
+    let browser = parent.querySelector('.media-browser');
+    if (!browser) {browser = this.element('div', {class:'media-browser'}); parent.append(browser);}
+    browser.textContent = 'Medien werden geladen …';
+    try {
+      const item = await this._hass.callWS({type:'desk_display/media_browse',media_content_id:id});
+      browser.replaceChildren(this.element('small', {}, item.title));
+      if (history.length) {
+        const back = this.element('button',{class:'secondary'},'Zurück');
+        back.onclick = () => this.browseMedia(parent,widget,history.at(-1),history.slice(0,-1));
+        browser.append(back);
+      }
+      for (const child of item.children ?? []) {
+        if (!child.can_expand && !child.can_play) continue;
+        const choose = this.element('button',{class:'secondary'}, child.title);
+        choose.onclick = () => {
+          if (child.can_expand) this.browseMedia(parent,widget,child.media_content_id,[...history,id]);
+          else {
+            widget.source = child.media_content_id;
+            this.draw(); this.schedulePreview();
+          }
+        };
+        browser.append(choose);
+      }
+      if (!(item.children ?? []).length) browser.append(this.element('small',{},'Keine auswählbaren Videos in diesem Ordner.'));
+    } catch(error) {browser.textContent = `Medien: ${error.message ?? error}`;}
   }
   element(tag, attributes = {}, text) {
     const element = document.createElement(tag);
@@ -89,7 +126,7 @@ export class DeskDisplayPanel extends HTMLElement {
     `));
     const main = this.element('main');
     main.append(this.element('h1', {}, 'Desk Display'),
-      this.element('p', {}, 'Platziere Texte, HA-Werte, Buttons und Switches auf deinem E32R35T.'));
+      this.element('p', {}, 'Platziere Texte, HA-Werte, Videos, Buttons und Switches auf deinem E32R35T.'));
     this.shadowRoot.append(main);
     if (!this.devices.length) {
       main.append(this.element('section', {}, 'Noch kein Display eingerichtet. Füge Desk Display unter Einstellungen → Geräte & Dienste hinzu.'));
@@ -162,12 +199,18 @@ export class DeskDisplayPanel extends HTMLElement {
     const widget = this.layout.widgets[this.widgetIndex];
     if (widget) {
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream']]) {
         kind.append(this.element('option',{value},label));
       }
       kind.value = widget.kind;
       kind.onchange = () => {
         widget.kind = kind.value;
+        if (widget.kind === 'media') {
+          widget.source = widget.entity_id.startsWith('camera.') ? widget.entity_id : (widget.source ?? '');
+          widget.width = Math.min(widget.width,160); widget.height = Math.min(Math.max(widget.height,90),120);
+          widget.x = Math.min(widget.x,480-widget.width); widget.y = Math.min(widget.y,320-widget.height);
+          widget.entity_id = '';
+        } else delete widget.source;
         const domain = widget.entity_id.split('.')[0];
         if ((widget.kind === 'button' && !['button','input_button','script'].includes(domain)) ||
             (widget.kind === 'switch' && !['switch','input_boolean'].includes(domain))) widget.entity_id = '';
@@ -175,7 +218,21 @@ export class DeskDisplayPanel extends HTMLElement {
       };
       settings.append(kind);
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
-      if (widget.kind !== 'text') {
+      if (widget.kind === 'media') {
+        const picker = this.element('ha-entity-picker');
+        picker.hass = this._hass; picker.includeDomains = ['camera']; picker.label = 'HA-Kamera';
+        picker.value = widget.source?.startsWith('camera.') ? widget.source : '';
+        picker.addEventListener('value-changed',event => {
+          if (event.detail.value) {widget.source = event.detail.value; this.draw(); this.schedulePreview();}
+        });
+        settings.append(picker);
+        this.field(settings,'Kamera / Medienquelle / Video-URL',widget.source ?? '', value => widget.source = value,
+          {placeholder:'camera.tuer oder media-source://…',maxlength:2048});
+        const browse = this.element('button',{class:'secondary'},'HA-Medien auswählen');
+        browse.onclick = () => this.browseMedia(settings,widget);
+        settings.append(browse,this.element('small',{},
+          'Stream-MVP: ein Videofeld, bis 160 × 120 Pixel, Ziel 2 FPS, ohne Ton. Kamera, HA-Medien oder direkte RTSP-/HTTP-/RTMP-Videoquelle. Keine Webseiten, DRM oder reine WebRTC-Quellen. Speichern startet den Stream; die Vorschau zeigt den zuletzt dekodierten Frame.'));
+      } else if (widget.kind !== 'text') {
         const picker = this.element('ha-entity-picker');
         picker.hass = this._hass; picker.value = widget.entity_id; picker.label = 'HA-Entität';
         if (widget.kind === 'button') picker.includeDomains = ['button','input_button','script'];
@@ -196,7 +253,7 @@ export class DeskDisplayPanel extends HTMLElement {
           ? 'Tippen am Display drückt den HA-Button oder startet das ausgewählte Skript. Die Vorschau löst keine Aktion aus.'
           : 'Tippen am Display schaltet die Entität um. Der angezeigte Zustand kommt aus Home Assistant.'));
       }
-      for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,480],['height','Höhe',1,320]]]) {
+      for (const fields of [[['x','X',0,479],['y','Y',0,319]],[['width','Breite',1,widget.kind === 'media' ? 160 : 480],['height','Höhe',1,widget.kind === 'media' ? 120 : 320]]]) {
         const row = this.element('div',{class:'row'});
         for (const [key,title,min,max] of fields) this.field(row,title,widget[key],value=>{widget[key]=Number(value);this.refreshHits();},{type:'number',min,max,step:1,'data-field':key});
         settings.append(row);

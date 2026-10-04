@@ -13,7 +13,7 @@ from .render import render_preview
 
 @callback
 def register_commands(hass):
-    for handler in (list_displays, preview, save):
+    for handler in (list_displays, preview, save, media_browse):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -42,7 +42,11 @@ async def preview(hass, connection, msg):
         connection.send_error(msg["id"], "invalid_layout", str(err))
         return
     states = snapshot_states(hass, layout)
-    image = await hass.async_add_executor_job(render_preview, layout, states)
+    frames = {}
+    for coordinator in hass.data.get(DOMAIN, {}).values():
+        if (worker := getattr(coordinator, 'media', None)):
+            frames.update(worker.frames)
+    image = await hass.async_add_executor_job(render_preview, layout, states, frames)
     connection.send_result(msg["id"], {"png": base64.b64encode(image).decode("ascii")})
 
 
@@ -67,3 +71,17 @@ async def save(hass, connection, msg):
         await coordinator.async_refresh()
         sent = coordinator.last_update_success
     connection.send_result(msg["id"], {"saved": True, "sent": sent})
+
+
+@websocket_api.websocket_command({"type": "desk_display/media_browse",
+                                  vol.Optional("media_content_id", default=None): vol.Any(None, str)})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def media_browse(hass, connection, msg):
+    from homeassistant.components.media_source import async_browse_media
+    try:
+        item = await async_browse_media(hass, msg["media_content_id"],
+                                      content_filter=lambda item: item.media_class == "video")
+        connection.send_result(msg["id"], item.as_dict())
+    except Exception:
+        connection.send_error(msg["id"], "media_unavailable", "Medienquelle nicht verfuegbar")

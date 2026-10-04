@@ -23,7 +23,7 @@ LOGGER = logging.getLogger(__name__)
 def snapshot_states(hass, layout):
     result = {}
     for widget in layout["widgets"]:
-        if widget["kind"] == "text":
+        if widget["kind"] in ("text", "media"):
             continue
         state = hass.states.get(widget["entity_id"])
         if state is None or state.state in ("unknown", "unavailable"):
@@ -53,6 +53,9 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
     @callback
     def async_start(self):
         """The display is a consumer even when HA's diagnostic entities are disabled."""
+        from .media import MediaWorker
+        self.media = MediaWorker(self)
+        self.media.start()
         self.entry.async_on_unload(self.async_add_listener(self._keep_polling))
         self.entry.async_on_unload(
             self.hass.bus.async_listen(EVENT_STATE_CHANGED, self._state_changed))
@@ -107,7 +110,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         """Push changes for the current saved layout, coalescing bursts of updates."""
         entity_id = event.data.get("entity_id")
         widgets = self.entry.options.get("layout", DEFAULT_LAYOUT)["widgets"]
-        if not any(widget["kind"] != "text" and widget["entity_id"] == entity_id
+        if not any(widget["kind"] not in ("text", "media") and widget["entity_id"] == entity_id
                    for widget in widgets):
             return
         before = event.data.get("old_state")
@@ -125,18 +128,25 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
 
     async def _update_frame(self):
         try:
+            layout = get_layout(self.entry.options)
+            media = getattr(self, 'media', None)
+            if media:
+                media.sync(layout)
             info = await self.client.info()
             if info["id"] != self.entry.unique_id:
                 raise ValueError("Unter dieser Adresse antwortet ein anderes Display")
-            layout = get_layout(self.entry.options)
+            if any(w['kind'] == 'media' for w in layout['widgets']) and not info.get('buffered_regions'):
+                raise ValueError("Video benoetigt Display-Firmware 0.3.0")
             if info.get('debug_overlay') and info.get('debug_enabled') != layout['debug']:
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
-            frame = await self.hass.async_add_executor_job(render_frame, layout, states)
+            frame = await self.hass.async_add_executor_job(render_frame, layout, states,
+                                                         dict(media.frames) if media else {})
             # Resend after a reboot even when the layout and states did not change.
             if frame != self.last_frame or layout != self.last_layout or not info.get("has_frame", False):
-                revision = uuid.uuid4().hex
+                # Video motion leaves the action mapping unchanged.
+                revision = self.revision if layout == self.last_layout and info.get('has_frame') else uuid.uuid4().hex
                 if info.get('buffered_regions'):
                     previous = self.last_frame if info.get('has_frame') else None
                     updates = await self.hass.async_add_executor_job(regions,frame,previous)

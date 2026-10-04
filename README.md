@@ -78,6 +78,39 @@ Die Messung wird ausgeschaltet, wenn das Overlay deaktiviert ist. Unter dem Over
 liegende Buttons reagieren in dieser Ecke nicht auf Touch. Ältere Firmware kann
 weiterhin Texte und HA-Werte anzeigen, unterstützt aber diese Verbesserungen nicht.
 
+## Video / Livestream (Integration 0.4.0)
+
+Firmware **0.3.0 reicht aus**. Nach dem HACS-Update Home Assistant vollständig
+neu starten und den Designer neu laden. Ein Element hinzufügen und den Typ
+**Video / Livestream** auswählen. Eine vorhandene HA-Kamera auswählen, mit
+**HA-Medien auswählen** die Medienbibliothek öffnen oder eine direkte Video-URL
+eintragen. Position und Größe festlegen und **Speichern & übertragen** drücken.
+
+HA löst `camera.*` und `media-source://…` auf. Ein dauerhaft laufender FFmpeg-Prozess
+dekodiert das Video außerhalb des HA-Eventloops. RTSP(S), HTTP(S) (z. B. HLS,
+MJPEG, MP4) und RTMP(S) können verwendet werden, soweit die installierte FFmpeg-
+Version die konkrete Quelle und deren Codec unterstützt. Kamera-Zugangsdaten
+kommen aus der bestehenden HA-Integration; HA-Tokens werden nicht ans Display
+übertragen. Ein Kamera-Substream verringert die Last auf dem HA-Host.
+
+Der erste Stream-MVP unterstützt **ein Videofeld bis 160 × 120 Pixel**, **ohne Ton**,
+mit **Ziel 2 FPS**. Jeder Video-Bildbereich passt vollständig in den Displaypuffer.
+Die reale Bildrate hängt von Netzwerk, Quelle und HA-Host ab. Bei langsamer
+Übertragung werden alte Frames verworfen; es wird keine wachsende Warteschlange
+aufgebaut. Die Vorschau zeigt etwa einmal pro Sekunde den letzten dekodierten
+Frame der gespeicherten Quelle. Buttons können oberhalb des Videos liegen;
+Videobewegung verändert die Aktionszuordnung nicht.
+
+Das ist ein laufender Videostream, kein wiederholter Kamera-Snapshot-Aufruf.
+Bei Streamverlust erscheint **Stream offline**, danach erfolgt ein neuer Versuch
+nach zehn Sekunden. Endliche Dateien starten nach dem Ende erneut. Entfernen
+oder Ändern der Quelle sowie Entladen der Integration beendet den alten Decoder.
+
+**Nicht abspielbar:** normale Webseiten, DRM-geschützte Inhalte, reine Audioquellen
+und reine WebRTC-Kameras ohne abrufbare Videoquelle. Eine sichtbare Kamera in HA
+allein garantiert deshalb noch keinen kompatiblen Stream. Größere Videoansichten
+und höhere Bildraten benötigen einen weiteren Ausbau des Transports.
+
 ## Kommunikation und Support
 
 Die Integration nutzt die vorhandenen HA-Entitäten und kommuniziert lokal

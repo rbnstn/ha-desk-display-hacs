@@ -7,11 +7,20 @@ from .const import HEIGHT, WIDTH
 from .models import validate_layout
 
 
-def render_image(layout, states):
+def render_image(layout, states, media=None):
     """Render a snapshot of state strings; clip each widget to its rectangle."""
     layout = validate_layout(layout)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
+        if widget["kind"] == "media":
+            tile = Image.new("RGB", (widget["width"], widget["height"]), "#111111")
+            data = (media or {}).get((widget["source"], widget["width"], widget["height"]))
+            if data is not None and len(data) == widget["width"] * widget["height"] * 3:
+                tile = Image.frombytes("RGB", tile.size, data)
+            else:
+                ImageDraw.Draw(tile).text((4, 4), "Stream offline", font=ImageFont.load_default(size=12), fill="#ffffff")
+            image.paste(tile, (widget["x"], widget["y"]))
+            continue
         tile = Image.new("RGBA", (widget["width"], widget["height"]))
         text = widget["text"]
         if widget["kind"] == "sensor":
@@ -50,11 +59,11 @@ def rgb565(image):
     return bytes(output)
 
 
-def render_frame(layout, states):
-    return rgb565(render_image(layout, states))
+def render_frame(layout, states, media=None):
+    return rgb565(render_image(layout, states, media))
 
 
-def render_preview(layout, states):
+def render_preview(layout, states, media=None):
     buffer = BytesIO()
-    render_image(layout, states).save(buffer, format="PNG")
+    render_image(layout, states, media).save(buffer, format="PNG")
     return buffer.getvalue()
