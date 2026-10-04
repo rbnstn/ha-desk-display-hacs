@@ -2,7 +2,7 @@
 import math
 from PIL import Image, ImageDraw, ImageFont
 
-KINDS=('progress','gauge','chip')
+KINDS=('progress','gauge','chip','chart','energy')
 
 
 def number(value,default=None):
@@ -16,12 +16,24 @@ def validate_config(widget):
     config=widget.get('config',{})
     if not isinstance(config,dict):raise ValueError('Ungueltige Elementkonfiguration')
     kind=widget['kind']
-    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'}}.get(kind,set())
+    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
     if set(config)-allowed:raise ValueError('Unbekannte Elementeinstellung')
     if kind in ('progress','gauge'):
         for key,default in [('min',0),('max',100)]:
             if number(config.get(key,default)) is None:raise ValueError('Endliche Bereichsgrenzen angeben')
         if float(config.get('min',0))>=float(config.get('max',100)):raise ValueError('Maximum muss groesser als Minimum sein')
+    if kind=='chart':
+        if type(config.get('minutes',60)) is not int or not 15<=config.get('minutes',60)<=1440:raise ValueError('Verlauf: 15 bis 1440 Minuten')
+        for key in ('min','max','threshold','factor'):
+            if key in config and number(config[key]) is None:raise ValueError('Endliche Diagrammwerte angeben')
+        if 'min' in config and 'max' in config and float(config['min'])>=float(config['max']):raise ValueError('Diagrammmaximum muss groesser sein')
+    if kind=='energy':
+        import re
+        for key in ('solar','house','battery','grid'):
+            if not isinstance(config.get(key,''),str) or not re.fullmatch(r'[a-z_][a-z0-9_]*\.[a-z0-9_]+',config.get(key,'')):raise ValueError('Energiefluss: vier HA-Entitaeten auswaehlen')
+        for key in ('grid_invert','battery_invert'):
+            if type(config.get(key,False)) is not bool:raise ValueError('Ungueltige Flussrichtung')
+        if number(config.get('factor',1)) is None:raise ValueError('Ungueltiger Energiefaktor')
     for key in ('unit','active','on_text','off_text'):
         if key in config and (not isinstance(config[key],str) or len(config[key])>40 or any(ord(c)<32 for c in config[key])):raise ValueError('Text: maximal 40 Zeichen')
 
@@ -32,6 +44,43 @@ def tile(widget,states,theme):
     font=ImageFont.load_default(size=min(widget['size'],24));small=ImageFont.load_default(size=12)
     raw=states.get('__raw__',{}).get(widget['entity_id'],('unavailable',''))
     value=number(raw[0]);kind=widget['kind'];muted='#49454f' if theme=='material_light' else '#cac4d0'
+    if kind=='chart':
+        points,start,end=states.get('__history__',{}).get(widget['entity_id'],([],0,1))
+        factor=float(config.get('factor',1));values=[v*factor for _,v in points if v is not None]
+        draw.text((4,2),widget['text'][:32],font=small,fill=color)
+        if not values:
+            draw.text((4,24),'Kein Verlauf verfügbar',font=small,fill=muted);return image
+        low=float(config.get('min',min(values)));high=float(config.get('max',max(values)))
+        if high<=low:high=low+1
+        top=22;bottom=max(top+1,height-18);right=max(1,width-6)
+        draw.line((4,bottom,right,bottom),fill=muted)
+        def position(timestamp,value):
+            return (4+max(0,min(1,(timestamp-start)/max(1,end-start)))*(right-4),bottom-max(0,min(1,(value-low)/(high-low)))*(bottom-top))
+        previous=None
+        for timestamp,value in points:
+            if value is None:previous=None;continue
+            current=position(timestamp,value*factor)
+            if previous:draw.line((previous,current),fill=color,width=2)
+            previous=current
+        if 'threshold' in config:
+            y=position(start,float(config['threshold']))[1];draw.line((4,y,right,y),fill='#ffb74d',width=1)
+        draw.text((4,max(0,height-15)),f'{values[-1]:g} {config.get("unit",raw[1])}',font=small,fill=color)
+        return image
+    if kind=='energy':
+        centers={'solar':(width*.25,height*.23),'house':(width*.75,height*.23),'battery':(width*.25,height*.75),'grid':(width*.75,height*.75)}
+        center=(width*.5,height*.5);labels={'solar':'Solar','house':'Haus','battery':'Batterie','grid':'Netz'}
+        for role,point in centers.items():
+            state=states.get('__raw__',{}).get(config.get(role,''),('unavailable',''));value=number(state[0]);value=None if value is None else value*float(config.get('factor',1))
+            if role in ('grid','battery') and config.get(role+'_invert'):value=None if value is None else -value
+            inward=role=='solar' or (role in ('grid','battery') and value is not None and value>=0)
+            a,b=(point,center) if inward else (center,point)
+            if value is not None and abs(value)>.01:
+                draw.line((a,b),fill=color,width=2);dx=b[0]-a[0];dy=b[1]-a[1];length=max(1,math.hypot(dx,dy));ux,uy=dx/length,dy/length
+                tip=((a[0]+b[0])/2,(a[1]+b[1])/2);draw.polygon([tip,(tip[0]-ux*8-uy*4,tip[1]-uy*8+ux*4),(tip[0]-ux*8+uy*4,tip[1]-uy*8-ux*4)],fill=color)
+            draw.rounded_rectangle((point[0]-width*.2,point[1]-20,point[0]+width*.2,point[1]+20),radius=8,fill='#211f26')
+            text=labels[role]+'\n'+('—' if value is None else f'{abs(value):g} W')
+            draw.multiline_text((point[0]-width*.18,point[1]-16),text,font=small,fill=color)
+        return image
     if kind=='chip':
         active=raw[0]==config.get('active','on');text=config.get('on_text','Aktiv') if active else config.get('off_text','Inaktiv')
         if raw[0] in ('unknown','unavailable'):text='Nicht verfügbar'

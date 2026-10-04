@@ -86,13 +86,13 @@ def validate_layout(layout, nested=False):
     for widget in widgets:
         if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] not in ("text", "media", "image", "clock", "navigation", "icon", "line") and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] not in ("text", "media", "image", "clock", "navigation", "icon", "line", "energy") and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
         domain = widget["entity_id"].split(".", 1)[0]
         if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
@@ -187,7 +187,7 @@ def validate_layout(layout, nested=False):
         else:
             normalized.pop("source", None)
             normalized.pop("fps", None)
-        if normalized["kind"] in ("text", "media", "image", "clock", "icon", "line"):
+        if normalized["kind"] in ("text", "media", "image", "clock", "icon", "line", "energy"):
             normalized["entity_id"] = ""
         result["widgets"].append(normalized)
     if sum(w["kind"] == "media" for w in result["widgets"]) > 1:

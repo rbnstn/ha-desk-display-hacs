@@ -46,7 +46,7 @@ def snapshot_states(hass, layout):
             result['__raw__'][entity]=(raw.state,'') if raw else ('unavailable','')
         if widget["kind"] in ("text", "media", "image", "clock"):
             continue
-        if widget['kind'] in ('sensor','progress','gauge','chip'):
+        if widget['kind'] in ('sensor','progress','gauge','chip','chart'):
             for entity in (widget['entity_id'],widget.get('value',{}).get('fallback_entity_id','')):
                 if entity:
                     raw=hass.states.get(entity)
@@ -309,6 +309,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
+            from .history import augment_states
+            await augment_states(self.hass,layout,states)
             jpeg_video = info.get('jpeg_regions') and video_widget(layout) is not None
             frame = await self.hass.async_add_executor_job(render_frame, layout, states,
                                                          dict(media.frames) if media and not jpeg_video else {})

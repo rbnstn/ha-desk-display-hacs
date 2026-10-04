@@ -255,10 +255,10 @@ export class DeskDisplayPanel extends HTMLElement {
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
   addWidget(kind) {
-    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip'].includes(kind))return;
+    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
-    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40]};
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0)?276:320;
@@ -308,7 +308,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -798,13 +798,13 @@ export class DeskDisplayPanel extends HTMLElement {
       const contentStart=settings.childNodes.length;
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss']]) {
         const option=this.element('option',{value},label);
         option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
       kind.value = widget.kind;
       kind.onchange = () => {
-        widget.kind = kind.value;
+        widget.kind = kind.value;delete widget.config;
         if (widget.text==='Neuer Text') widget.text=({image:'Bild',clock:'Uhrzeit',media:'Video',sensor:'HA-Wert',button:'Button',switch:'Switch',text:'Neuer Text'})[widget.kind];
         if (widget.kind!=='sensor') delete widget.value;
         if (widget.kind!=='clock') delete widget.clock_format;
@@ -826,10 +826,24 @@ export class DeskDisplayPanel extends HTMLElement {
       };
       const kindLabel=this.element('label',{},'Elementtyp');kindLabel.append(kind);widgetPanel.append(kindLabel);
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
-      if(['progress','gauge','chip'].includes(widget.kind)) {
+      if(widget.kind==='energy') {
+        const config=widget.config??={};
+        for(const [role,label] of [['solar','Solarleistung'],['house','Hausverbrauch'],['battery','Batterieleistung'],['grid','Netzleistung']]) {
+          const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.value=config[role]??'';picker.addEventListener('value-changed',event=>{config[role]=event.detail.value??'';this.schedulePreview();});settings.append(picker);
+        }
+        this.field(settings,'Faktor für Werte in Watt',config.factor??1,v=>config.factor=Number(v),{type:'number',step:'any'});
+        for(const role of ['grid','battery']){const check=this.element('input',{type:'checkbox'});check.checked=!!config[role+'_invert'];check.onchange=()=>{config[role+'_invert']=check.checked;this.schedulePreview();};const label=this.element('label');label.append(check,document.createTextNode((role==='grid'?'Netz':'Batterie')+'-Vorzeichen umkehren'));settings.append(label);}
+        settings.append(this.element('small',{},'Positive Netz-/Batteriewerte fließen zum Haus; negative Werte fließen aus dem Haus.'));
+      } else if(['progress','gauge','chip','chart'].includes(widget.kind)) {
         const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.value=widget.entity_id;picker.label='HA-Entität';picker.addEventListener('value-changed',event=>{widget.entity_id=event.detail.value??'';this.schedulePreview();});settings.append(picker);
         const config=widget.config??={};
-        if(widget.kind==='chip') {
+        if(widget.kind==='chart') {
+          this.field(settings,'Zeitraum (Minuten)',config.minutes??60,v=>config.minutes=Number(v),{type:'number',min:15,max:1440});
+          this.field(settings,'Umrechnungsfaktor',config.factor??1,v=>config.factor=Number(v),{type:'number',step:'any'});
+          for(const [key,label] of [['min','Minimum (leer = automatisch)'],['max','Maximum (leer = automatisch)'],['threshold','Grenzwert (optional)']])this.field(settings,label,config[key]??'',v=>{if(v==='')delete config[key];else config[key]=Number(v);},{type:'number',step:'any'});
+          this.field(settings,'Einheit',config.unit??'',v=>config.unit=v,{maxlength:16});
+          settings.append(this.element('small',{},'Verwendet HA-Recorder. Historie wird einmal pro Minute geladen, maximal 120 Punkte.'));
+        } else if(widget.kind==='chip') {
           for(const [key,label,def] of [['active','Aktiver HA-Zustand','on'],['on_text','Text bei aktiv','Aktiv'],['off_text','Text bei inaktiv','Inaktiv']])this.field(settings,label,config[key]??def,v=>config[key]=v,{maxlength:40});
         } else {
           for(const [key,label,def] of [['min','Minimum',0],['max','Maximum',100]])this.field(settings,label,config[key]??def,v=>config[key]=Number(v),{type:'number'});

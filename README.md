@@ -347,3 +347,7 @@ Enthält die Verbesserungen aus 0.15.0 und 0.16.0. Größenänderungen richten d
 ## Version 0.17.0: Fortschritt, Ring und Status
 
 Fortschrittsbalken und Ringanzeigen mit Minimum, Maximum und Einheit. Status-Chips mit frei konfigurierbaren Zuständen. Elemente im Designer sperren oder am Display ausblenden; ausgeblendete Elemente führen keine Touch-Aktion aus.
+
+## Version 0.18.0: Verlauf und Energiefluss
+
+Verlaufsdiagramme aus HA-Recorder: Zeitfenster, Faktor, Einheit, automatische oder feste Grenzen und Grenzwert. Maximal 120 Punkte, Cache für eine Minute. PV-Energiefluss mit vier HA-Leistungswerten und konfigurierbaren Vorzeichen für Netz und Batterie.

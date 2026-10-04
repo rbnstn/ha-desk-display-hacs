@@ -57,6 +57,8 @@ async def preview(hass, connection, msg):
         connection.send_error(msg["id"], "invalid_layout", str(err))
         return
     states = snapshot_states(hass, layout)
+    from .history import augment_states
+    await augment_states(hass,layout,states)
     try:
         from .simulation import apply_simulation
         simulated=apply_simulation(states,layout,msg.get('simulation',{}))
