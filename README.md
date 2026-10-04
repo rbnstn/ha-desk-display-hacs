@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.7.0**, Home Assistant **2026.9 oder neuer**.
+Version **0.7.1**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -237,3 +237,12 @@ und Wert auf getrennten Zeilen. Das optionale Klingel-Overlay folgt dem Design.
 Die Darstellung entsteht in HA; die Firmware und das Limit von 1 FPS bleiben
 unverändert. Nach dem HACS-Update HA neu starten und den Designer neu laden
 (gegebenenfalls Strg+F5). Kein Firmware-Update erforderlich.
+
+## Layout-Werkzeuge ab 0.7.1
+
+Unter **Anordnen** das ausgewählte Element duplizieren, eine Ebene nach vorn oder
+zurück verschieben und am gesamten Display ausrichten. Duplikate übernehmen
+Entität, Stil und Größe und werden innerhalb des Displays leicht versetzt.
+Die oberste Ebene bestimmt auch das Touch-Ziel. Videofelder lassen sich nicht
+duplizieren, da weiterhin eine Videoquelle pro Ansicht unterstützt wird.
+Anschließend **Speichern & übertragen**. Kein Firmware-Update erforderlich.

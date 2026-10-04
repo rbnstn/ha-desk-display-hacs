@@ -147,6 +147,34 @@ export class DeskDisplayPanel extends HTMLElement {
     }
     this.draw(); this.schedulePreview();
   }
+  duplicateSelected() {
+    const selected = this.layout.widgets[this.widgetIndex];
+    if (this.overlayPreview || !selected || selected.kind === 'media' || this.layout.widgets.length >= 8) return;
+    const copy = structuredClone(selected);
+    copy.x = Math.min(480-copy.width, copy.x+12);
+    copy.y = Math.min(320-copy.height, copy.y+12);
+    this.layout.widgets.splice(this.widgetIndex+1, 0, copy);
+    ++this.widgetIndex;
+    this.draw(); this.schedulePreview();
+  }
+  moveSelectedLayer(direction) {
+    if (this.overlayPreview || ![-1,1].includes(direction)) return;
+    const widgets = this.layout.widgets;
+    const target = this.widgetIndex+direction;
+    if (!widgets[this.widgetIndex] || target<0 || target>=widgets.length) return;
+    [widgets[this.widgetIndex], widgets[target]] = [widgets[target], widgets[this.widgetIndex]];
+    this.widgetIndex=target;
+    this.draw(); this.schedulePreview();
+  }
+  alignSelected(alignment) {
+    const widget=this.layout.widgets[this.widgetIndex];
+    if (this.overlayPreview || !widget) return;
+    const positions={left:['x',0],center:['x',Math.round((480-widget.width)/2)],right:['x',480-widget.width],
+      top:['y',0],middle:['y',Math.round((320-widget.height)/2)],bottom:['y',320-widget.height]};
+    if (!positions[alignment]) return;
+    const [axis,value]=positions[alignment];widget[axis]=value;
+    this.draw(); this.schedulePreview();
+  }
   draw() {
     this.shadowRoot.replaceChildren();
     this.shadowRoot.append(this.element('style', {}, `
@@ -300,6 +328,21 @@ export class DeskDisplayPanel extends HTMLElement {
     settings.append(widgetSelect);
     const widget = this.layout.widgets[this.widgetIndex];
     if (widget) {
+      settings.append(this.element('h3',{},'Anordnen'));
+      const duplicate=this.element('button',{class:'secondary'},'Duplizieren');
+      duplicate.disabled=widget.kind==='media' || this.layout.widgets.length>=8;
+      duplicate.onclick=()=>this.duplicateSelected();
+      const backward=this.element('button',{class:'secondary'},'Eine Ebene zurück');
+      backward.disabled=this.widgetIndex===0;backward.onclick=()=>this.moveSelectedLayer(-1);
+      const forward=this.element('button',{class:'secondary'},'Eine Ebene nach vorn');
+      forward.disabled=this.widgetIndex===this.layout.widgets.length-1;forward.onclick=()=>this.moveSelectedLayer(1);
+      settings.append(duplicate,backward,forward);
+      const alignment=this.element('select',{'aria-label':'Am Display ausrichten'});
+      alignment.append(this.element('option',{value:''},'Am Display ausrichten …'));
+      for (const [value,label] of [['left','Links'],['center','Horizontal mittig'],['right','Rechts'],['top','Oben'],['middle','Vertikal mittig'],['bottom','Unten']])
+        alignment.append(this.element('option',{value},label));
+      alignment.onchange=()=>this.alignSelected(alignment.value);
+      settings.append(alignment,this.element('small',{},'Ausrichtung bezieht sich auf das ganze Display. Die oberste Ebene bestimmt auch das Touch-Ziel. Maximal acht Elemente und ein Videofeld.'));
       const kind = this.element('select', {'aria-label':'Elementtyp'});
       for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream']]) {
         kind.append(this.element('option',{value},label));
