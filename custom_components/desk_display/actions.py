@@ -2,7 +2,7 @@
 
 import re
 
-BUTTON_SERVICES = {"button": "press", "input_button": "press", "script": "turn_on"}
+BUTTON_SERVICES = {"button": "press", "input_button": "press", "script": "turn_on", "lock": "open"}
 SWITCH_SERVICES = {"switch": "toggle", "input_boolean": "toggle"}
 
 

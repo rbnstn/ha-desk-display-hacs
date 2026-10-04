@@ -5,12 +5,15 @@ from datetime import datetime, timezone
 from .models import ENTITY, get_layout, validate_layout
 from .actions import BUTTON_SERVICES
 
-DEFAULT_DOORBELL={'enabled':False,'entity_id':'','camera':'','open_entity_id':'','duration':30}
+DEFAULT_DOORBELL={'enabled':False,'entity_id':'','camera':'','open_entity_id':'','duration':30,'preload':False}
 
 
 def validate_doorbell(value):
-    if not isinstance(value,dict) or set(value)!=set(DEFAULT_DOORBELL):
+    if not isinstance(value,dict) or set(value) not in (set(DEFAULT_DOORBELL),set(DEFAULT_DOORBELL)-{'preload'}):
         raise ValueError('Ungueltige Klingelkonfiguration')
+    value={**DEFAULT_DOORBELL,**value}
+    if type(value['preload']) is not bool:
+        raise ValueError('Ungueltige Kameravorbereitung')
     if type(value['enabled']) is not bool or type(value['duration']) is not int or not 5<=value['duration']<=300:
         raise ValueError('Klingelansicht: Dauer 5 bis 300 Sekunden')
     domains={'entity_id':('binary_sensor','event','input_button'),

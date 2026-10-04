@@ -14,7 +14,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 
 from .models import get_layout, validate_media_source
 from .video import VideoDecoder, VideoError
-from .doorbell import current_layout, video_widget
+from .doorbell import current_layout, video_widget, get_doorbell, overlay_layout
 
 LOGGER = logging.getLogger(__name__)
 
@@ -56,14 +56,49 @@ async def resolve_source(hass, source):
 
 
 class MediaWorker:
-    def __init__(self, coordinator):
+    def __init__(self, coordinator, owner=None):
         self.coordinator = coordinator
         self.hass = coordinator.hass
         self.task = None
         self.signature = None
-        self.frames = {}
+        self.owner = owner
+        self.preloader = None
+        self._frames = {}
+        self.updated_at = None
         self.status = "idle"
         self.error_code = None
+
+    @property
+    def frames(self):
+        if self.owner is not None:
+            # Never use an old standby image as the first doorbell frame.
+            return self._frames if self.updated_at is not None and monotonic()-self.updated_at <= 2.5 else {}
+        if self.preloader is None:
+            return self._frames
+        return {**self._frames, **self.preloader.frames}
+
+    def visible(self, signature):
+        return self.owner is None or self.owner.signature == signature
+
+    @property
+    def status(self):
+        if self.preloader is not None and self.signature == self.preloader.signature:
+            return self.preloader.status
+        return self._status
+
+    @status.setter
+    def status(self, value):
+        self._status = value
+
+    @property
+    def error_code(self):
+        if self.preloader is not None and self.signature == self.preloader.signature:
+            return self.preloader.error_code
+        return self._error_code
+
+    @error_code.setter
+    def error_code(self, value):
+        self._error_code = value
 
     @callback
     def start(self):
@@ -74,8 +109,15 @@ class MediaWorker:
 
     @callback
     def stop(self, _event=None):
+        if self.preloader is not None:
+            self.preloader.stop()
+            self.preloader = None
+        self._stop_active()
+
+    def _stop_active(self):
         self.signature = None
-        self.frames.clear()
+        self._frames.clear()
+        self.updated_at = None
         self.status = "idle"
         self.error_code = None
         if self.task:
@@ -83,19 +125,35 @@ class MediaWorker:
         self.task = None
 
     def sync(self, layout):
+        config = get_doorbell(self.coordinator.entry.options)
+        warm_widget = video_widget(overlay_layout(config)) if config['enabled'] and config['preload'] else None
+        warm_signature = (warm_widget['source'],warm_widget['width'],warm_widget['height'],1) if warm_widget else None
+        if warm_signature:
+            if self.preloader is None:
+                self.preloader = MediaWorker(self.coordinator, owner=self)
+            self.preloader._select(warm_signature)
+        elif self.preloader is not None:
+            self.preloader.stop()
+            self.preloader = None
         widget = video_widget(layout)
         signature = (widget["source"], widget["width"], widget["height"], widget['fps']) if widget else None
-        if signature == self.signature:
+        delegated = warm_signature is not None and signature == warm_signature
+        if signature == self.signature and (self.task is None) == (signature is None or delegated):
             return
         base=next((w for w in layout['widgets'] if w['kind']=='media'),None)
         key=(base['source'],base['width'],base['height']) if base else None
-        cached=self.frames.get(key)
-        self.stop()
-        if signature and cached is not None:
-            self.frames[key]=cached
+        cached=self._frames.get(key)
+        self._select(signature, start=not delegated)
+        if signature and cached is not None and (warm_signature is None or key != warm_signature[:3]):
+            self._frames[key]=cached
+
+    def _select(self, signature, start=True):
+        if signature == self.signature and (self.task is not None) == bool(signature and start):
+            return
+        self._stop_active()
         self.signature = signature
         self.status = "connecting" if signature else "idle"
-        if signature:
+        if signature and start:
             self.task = self.coordinator.entry.async_create_background_task(
                 self.hass, self.run(signature), "Desk Display video")
 
@@ -120,12 +178,15 @@ class MediaWorker:
                 while self.signature == signature:
                     await asyncio.sleep(max(0,deadline-monotonic()))
                     if decoder.latest is not None and decoder.sequence != sequence:
-                        self.frames[signature[:3]] = decoder.latest
+                        self._frames[signature[:3]] = decoder.latest
+                        self.updated_at = monotonic()
                         sequence = decoder.sequence
                         self.status = "live"
                         self.error_code = None
                         # Drain a pending touch before a firmware frame clears its event.
-                        if fast:
+                        if not self.visible(signature):
+                            pass
+                        elif fast:
                             await self.coordinator.async_video_frame(signature)
                         else:
                             await self.coordinator._poll_touch()
@@ -142,7 +203,7 @@ class MediaWorker:
                 self.status = "unavailable"
                 self.error_code = err.code if isinstance(err, VideoError) else (
                     "timeout" if isinstance(err, TimeoutError) else "resolve_failed" if stage == "resolve" else "decoder_failed")
-                self.frames.clear()
+                self._frames.clear()
                 LOGGER.warning("Desk Display video unavailable (%s); retrying in 10 seconds", self.error_code)
             finally:
                 if decoder_task is not None:
@@ -151,5 +212,6 @@ class MediaWorker:
                         await decoder_task
             if self.signature != signature:
                 return
-            await self.coordinator.async_refresh()
+            if self.visible(signature):
+                await self.coordinator.async_refresh()
             await asyncio.sleep(10)

@@ -7,6 +7,7 @@ from datetime import timedelta
 import aiohttp
 from homeassistant.core import callback
 from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.components.lock import LockEntityFeature
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval, async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -21,13 +22,26 @@ from .doorbell import current_layout, get_doorbell, is_ring, video_widget
 LOGGER = logging.getLogger(__name__)
 
 
+def action_available(state, domain):
+    if state is None or state.state in ('unknown', 'unavailable'):
+        return False
+    if domain == 'lock':
+        features = state.attributes.get('supported_features', 0)
+        return (isinstance(features, int) and not isinstance(features, bool)
+                and bool(features & LockEntityFeature.OPEN)
+                and not state.attributes.get('code_format'))
+    return True
+
+
 def snapshot_states(hass, layout):
     result = {}
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
         if widget["kind"] in ("text", "media"):
             continue
         state = hass.states.get(widget["entity_id"])
-        if state is None or state.state in ("unknown", "unavailable"):
+        if state is None or state.state in ('unknown','unavailable') or (
+            widget['kind']=='button' and not action_available(state,widget['entity_id'].split('.')[0])
+        ):
             result[widget["entity_id"]] = "Nicht verfuegbar"
         else:
             unit = state.attributes.get("unit_of_measurement", "") if widget["kind"] == "sensor" else ""
@@ -118,7 +132,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             if action is not None and not self.touch_stopped:
                 domain, service, entity_id = action
                 state = self.hass.states.get(entity_id)
-                if state is not None and state.state not in ("unknown", "unavailable"):
+                if action_available(state, domain):
                     await self.hass.services.async_call(
                         domain, service, {"entity_id": entity_id}, blocking=True)
         except (aiohttp.ClientError, TimeoutError, ValueError):
@@ -151,7 +165,9 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         after = event.data.get("new_state")
         if before is not None and after is not None and (
             before.state == after.state and
-            before.attributes.get("unit_of_measurement") == after.attributes.get("unit_of_measurement")
+            before.attributes.get("unit_of_measurement") == after.attributes.get("unit_of_measurement") and
+            before.attributes.get('supported_features') == after.attributes.get('supported_features') and
+            before.attributes.get('code_format') == after.attributes.get('code_format')
         ):
             return
         self.hass.async_create_task(self.async_request_refresh())

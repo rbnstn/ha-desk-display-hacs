@@ -55,12 +55,15 @@ async def preview(hass, connection, msg):
         if (worker := getattr(coordinator, 'media', None)):
             frames.update(worker.frames)
             from .media import MESSAGES
-            for index, widget in enumerate(layout.get('overlay',layout)['widgets']):
-                if widget['kind'] == 'media' and worker.signature and worker.signature[:3] == (
-                    widget['source'], widget['width'], widget['height']
-                ):
-                    statuses.append({'index':index, 'state':worker.status,
-                                     'message':MESSAGES.get(worker.error_code, '')})
+            for session in (worker,getattr(worker,'preloader',None)):
+                if session is None:
+                    continue
+                for index, widget in enumerate(layout.get('overlay',layout)['widgets']):
+                    if widget['kind'] == 'media' and session.signature and session.signature[:3] == (
+                        widget['source'], widget['width'], widget['height']
+                    ) and not any(item['index']==index for item in statuses):
+                        statuses.append({'index':index, 'state':session.status,
+                                         'message':MESSAGES.get(session.error_code, '')})
     image = await hass.async_add_executor_job(render_preview, layout, states, frames)
     connection.send_result(msg["id"], {"png": base64.b64encode(image).decode("ascii"),
                                       "media_status":statuses})

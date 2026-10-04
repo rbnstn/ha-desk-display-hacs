@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.6.0**, Home Assistant **2026.9 oder neuer**.
+Version **0.6.1**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -29,20 +29,29 @@ Die Verbindung wird zusätzlich alle zehn Sekunden geprüft.
 **Element entfernen** neben **Element hinzufügen** löscht das ausgewählte Element.
 Die Änderung mit **Speichern & übertragen** dauerhaft übernehmen.
 
-Buttons unterstützen `button`, `input_button` und `script`; Switches unterstützen
+Buttons unterstützen `button`, `input_button`, `script` und `lock` (Aktion `lock.open`); Switches unterstützen
 `switch` und `input_boolean`. Aktionen werden nur durch Tippen am physischen Display
 ausgelöst. Die Editor-Vorschau ist ausschließlich zum Gestalten.
 
 Der MVP unterstützt eine normale Seite pro Display und ein optionales Klingel-
 Overlay. Pro Ansicht läuft ein Videofeld.
 
-## Optionales Klingel-Overlay ab 0.6.0
+## Optionales Klingel-Overlay ab 0.6.1
 
 Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen:
 
 - **Klingel-Auslöser**: `binary_sensor`, `event` oder `input_button`.
 - **Overlay-Kamera**: eine vorhandene HA-Kamera.
-- **Türöffner-Button oder Skript**: `button`, `input_button` oder `script`.
+- **Türöffner / Nuki-Schloss**: `button`, `input_button`, `script` oder `lock`.
+  Schloss-Entitäten verwenden `lock.open` zum Öffnen der Falle. Das Schloss muss
+  diese Funktion ohne PIN unterstützen; andernfalls ein passendes HA-Skript wählen.
+- **Overlay-Kamera vorbereiten**: optional, standardmäßig aus. HA hält ein aktuelles
+  Kamerabild bereit und verwendet beim Klingeln den bereits laufenden Decoder.
+  Zusätzliche Kamera-Verbindung und Rechenlast auf dem HA-Host; keine Standby-
+  Videoübertragung zum Display. Nach dem Speichern den ersten Kamerastart abwarten.
+  Bis zu zwei Decoder (normales Videofeld und vorbereitete Overlay-Kamera).
+  Beim Entladen oder Deaktivieren endet die Vorbereitung; veraltete Bereitschaftsbilder
+  werden nicht als erstes Overlay-Bild verwendet.
 - **Automatisch schließen nach**: 5–300 Sekunden, standardmäßig 30.
 
 Mit **Speichern & übertragen** übernehmen. **Overlay-Vorschau** öffnet nur die
@@ -60,8 +69,10 @@ startet die Rückkehrzeit neu. Nach Ablauf wird das normale Layout wieder angeze
 Die erste Overlay-Vorlage hat feste Positionen: Überschrift, Kamera (432 × 180)
 und Türöffner. Die normale Anzeige bleibt frei gestaltbar inklusive Größenänderung.
 Ein vorhandener Hintergrund-Stream pausiert während des Overlays; sein letztes
-Bild bleibt als Hintergrund, danach startet er neu. Beim Start einer Kamera
-kann zunächst der Offline-Platzhalter sichtbar sein. Die Kamera bleibt bei
+Bild bleibt als Hintergrund, danach startet er neu. Ohne Kameravorbereitung oder
+bei fehlendem aktuellem Frame kann zunächst der Offline-Platzhalter sichtbar sein.
+Die Vorbereitung verkürzt den erneuten Kamerastart; eine konkrete Latenz hängt
+von Kamera, HA-Host und Netzwerk ab. Die Kamera bleibt bei
 höchstens 1 FPS; das Overlay wird bei einem HA-Neustart nicht wiederhergestellt.
 Für dieses Feature mit vorhandener JPEG-Firmware ist kein erneutes Flashen nötig.
 

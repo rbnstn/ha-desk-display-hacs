@@ -7,6 +7,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.selected = 0;
     this.widgetIndex = 0;
     this.previewSequence = 0;
+    this.doorbell.preload ??= false;
     this.overlayPreview = false;
   }
   set hass(value) {
@@ -89,7 +90,8 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   loadDoorbell() {
     this.doorbell = structuredClone(this.devices[this.selected]?.doorbell ??
-      {enabled:false,entity_id:'',camera:'',open_entity_id:'',duration:30});
+      {enabled:false,entity_id:'',camera:'',open_entity_id:'',duration:30,preload:false});
+    this.doorbell.preload ??= false;
     this.overlayPreview = false;
   }
   status(message) {
@@ -163,12 +165,19 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const [key,label,domains] of [
       ['entity_id','Klingel-Auslöser',['binary_sensor','event','input_button']],
       ['camera','Overlay-Kamera',['camera']],
-      ['open_entity_id','Türöffner-Button oder Skript',['button','input_button','script']]]) {
+      ['open_entity_id','Türöffner / Nuki-Schloss',['button','input_button','script','lock']]]) {
       const picker=this.element('ha-entity-picker');picker.hass=this._hass;
       picker.label=label;picker.includeDomains=domains;picker.value=this.doorbell[key];
       picker.addEventListener('value-changed',event=>{this.doorbell[key]=event.detail.value ?? '';this.schedulePreview();});
       bellSettings.append(picker);
     }
+    bellSettings.append(this.element('small',{},'Bei einem Schloss wird die Aktion „Tür öffnen“ ausgeführt. Das Schloss muss diese Aktion ohne PIN unterstützen; sonst ein HA-Skript verwenden.'));
+    const preload=this.element('input',{type:'checkbox','aria-label':'Overlay-Kamera vorbereiten'});
+    preload.checked=!!this.doorbell.preload;
+    preload.onchange=()=>{this.doorbell.preload=preload.checked;this.status('Kameravorbereitung geändert. Zum Übertragen speichern.');};
+    const preloadLabel=this.element('label');
+    preloadLabel.append(preload,document.createTextNode('Overlay-Kamera vorbereiten'));
+    bellSettings.append(preloadLabel,this.element('small',{},'Hält auf dem HA-Rechner ein aktuelles Kamerabild bereit, damit es beim Klingeln schneller erscheint. Zusätzliche Kamera-Verbindung und HA-Rechenlast; das Display bleibt bei höchstens 1 FPS. Nach dem Speichern kurz auf den Kamerastart warten.'));
     this.field(bellSettings,'Automatisch schließen nach (Sekunden)',this.doorbell.duration,
       value=>this.doorbell.duration=Number(value),{type:'number',min:5,max:300,step:1});
     const overlayPreview=this.element('button',{class:'secondary'},this.overlayPreview?'Normale Vorschau':'Overlay-Vorschau');
@@ -258,7 +267,7 @@ export class DeskDisplayPanel extends HTMLElement {
           widget.fps = 1;
         } else {delete widget.source;delete widget.fps;}
         const domain = widget.entity_id.split('.')[0];
-        if ((widget.kind === 'button' && !['button','input_button','script'].includes(domain)) ||
+        if ((widget.kind === 'button' && !['button','input_button','script','lock'].includes(domain)) ||
             (widget.kind === 'switch' && !['switch','input_boolean'].includes(domain))) widget.entity_id = '';
         this.draw(); this.schedulePreview();
       };
@@ -285,7 +294,7 @@ export class DeskDisplayPanel extends HTMLElement {
       } else if (widget.kind !== 'text') {
         const picker = this.element('ha-entity-picker');
         picker.hass = this._hass; picker.value = widget.entity_id; picker.label = 'HA-Entität';
-        if (widget.kind === 'button') picker.includeDomains = ['button','input_button','script'];
+        if (widget.kind === 'button') picker.includeDomains = ['button','input_button','script','lock'];
         if (widget.kind === 'switch') picker.includeDomains = ['switch','input_boolean'];
         picker.addEventListener('value-changed', event => {
           if (event.detail.value !== widget.entity_id) {
