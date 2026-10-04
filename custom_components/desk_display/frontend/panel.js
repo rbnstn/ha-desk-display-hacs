@@ -129,6 +129,17 @@ export class DeskDisplayPanel extends HTMLElement {
     }catch(error){dialog.append(this.element('p',{},`Vergleich: ${error.message??error}`));}
   }
 
+
+  async showRingHistory() {
+    const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Klingelverlauf'});dialog.append(this.element('h2',{},'Klingelverlauf'));
+    const close=this.element('button',{},'Schließen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);this.shadowRoot.append(dialog);dialog.showModal();
+    try {const result=await this._hass.callWS({type:'desk_display/ringing_history',entry_id:this.devices[this.selected].id});
+      if(!result.records?.length)dialog.append(this.element('p',{},'Keine gespeicherten Ereignisse.'));
+      for(const record of result.records??[]){const row=this.element('div',{class:'toolbar'});row.append(this.element('span',{},record.label??record.at));if(record.image)row.append(this.element('img',{alt:'Kamerabild beim Klingeln',src:record.image,width:96,height:64}));dialog.append(row);}
+      if(result.records?.length){const clear=this.element('button',{class:'secondary'},'Verlauf löschen');clear.onclick=()=>{const confirm=this.element('button',{},'Alle gespeicherten Ereignisse endgültig löschen');confirm.onclick=async()=>{await this._hass.callWS({type:'desk_display/ringing_history',entry_id:this.devices[this.selected].id,clear:true});dialog.close();dialog.remove();this.status('Klingelverlauf gelöscht.');};clear.replaceWith(confirm);};dialog.append(clear);}
+    }catch(error){dialog.append(this.element('p',{},`Verlauf: ${error.message??error}`));}
+  }
+
   startVideoPreview() {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
@@ -335,10 +346,10 @@ export class DeskDisplayPanel extends HTMLElement {
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
   addWidget(kind) {
-    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player','cost','weather','countdown'].includes(kind))return;
+    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player','cost','weather','countdown','door_history'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
-    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung',cost:'Energiekosten',weather:'Wetter',countdown:'Countdown'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72]};
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung',cost:'Energiekosten',weather:'Wetter',countdown:'Countdown',door_history:'Klingelverlauf'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72],door_history:[320,224]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0) && this.documentLayout().navigation!==false?276:320;
@@ -388,7 +399,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin'],['door_history','Klingelverlauf','Letzte Klingelereignisse mit optionalen Bildern']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -440,7 +451,7 @@ export class DeskDisplayPanel extends HTMLElement {
         const camera=message.layout.widgets.find(w=>w.kind==='media'),opener=message.layout.widgets.find(w=>w.role==='door_open');
         const bell={...this.doorbell,layout:message.layout,camera:camera?.source??this.doorbell.camera};
         if(opener){bell.open_label=opener.text;bell.open_entity_id=opener.entity_id;}
-        const result=await this._hass.callWS({...message,type:'desk_display/preview',layout:this.documentLayout(),doorbell:bell,overlay:true,page:this.pageIndex??0});
+        const result=await this._hass.callWS({...message,type:'desk_display/preview',entry_id:this.devices[this.selected]?.id,layout:this.documentLayout(),doorbell:bell,overlay:true,page:this.pageIndex??0});
         if(message.type==='desk_display/preview')return result;
         this.doorbell=structuredClone(bell);dialog.close();dialog.remove();this.draw();this.preview();this.status('Klingel-Layout gespeichert im Entwurf. Zum Display bitte speichern und übertragen.');return {sent:false,backups:[]};
       }
@@ -636,7 +647,7 @@ export class DeskDisplayPanel extends HTMLElement {
       this.devices[deviceIndex].doorbell = savedDoorbell;
       this.devices[deviceIndex].backups=result.backups??this.devices[deviceIndex].backups;
       if (deviceIndex===this.selected) this.savedSnapshot=this.editState(savedLayout,savedDoorbell);
-      const resultPreview = await this._hass.callWS({type:'desk_display/preview',layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview,page:savedPage,simulation:savedSimulation});
+      const resultPreview = await this._hass.callWS({type:'desk_display/preview',entry_id:this.devices[deviceIndex]?.id,layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview,page:savedPage,simulation:savedSimulation});
       if (deviceIndex===this.selected && savedPage===(this.pageIndex??0) && JSON.stringify(savedSimulation)===JSON.stringify(this.simulation) && this.editState()===this.editState(savedLayout,savedDoorbell)) {
         this.previewImage = `data:image/png;base64,${resultPreview.png}`;
         this.shadowRoot.querySelector('.stage img').src = this.previewImage;
@@ -777,6 +788,12 @@ export class DeskDisplayPanel extends HTMLElement {
     bellSettings.append(test,close,this.element('small',{},'Vor dem Gerätetest aktivieren und speichern. Die Vorschau öffnet keine Tür. Binary-Sensoren lösen beim Wechsel Aus → Ein aus; Ereignis-Entitäten bei einem neuen Zeitstempel.'));
     const editBell=this.element('button',{class:'secondary'},'Klingel-Layout bearbeiten');editBell.onclick=()=>this.editDoorbellLayout();bellSettings.append(editBell,this.element('small',{},'Kamera, Titel, Türstatus und zusätzliche Aktionen frei anordnen. Im Layouteditor unter Inhalt die Klingelrolle festlegen. Änderungen werden erst mit Speichern & übertragen aktiv.'));
     const resetBell=this.element('button',{class:'secondary'},'Standard-Klingel-Layout wiederherstellen');resetBell.onclick=()=>{delete this.doorbell.layout;this.draw();this.schedulePreview();};bellSettings.append(resetBell);
+
+    const historyEnabled=this.element('input',{type:'checkbox','aria-label':'Klingelverlauf speichern'});historyEnabled.checked=!!this.doorbell.history_enabled;
+    historyEnabled.onchange=()=>{this.doorbell.history_enabled=historyEnabled.checked;this.draw();this.schedulePreview();};const historyLabel=this.element('label');historyLabel.append(historyEnabled,document.createTextNode('Klingelverlauf speichern'));bellSettings.append(historyLabel);
+    bellSettings.append(this.element('small',{},'Standardmäßig aus. Speichert bis 20 echte Klingelereignisse lokal in HA. Gerätetests werden nicht erfasst. Ausschalten und Speichern löscht den Verlauf.'));
+    if(this.doorbell.history_enabled){this.field(bellSettings,'Aufbewahrung in Tagen',this.doorbell.history_days??7,v=>this.doorbell.history_days=Number(v),{type:'number',min:1,max:30,step:1});const images=this.element('input',{type:'checkbox','aria-label':'Vorschaubilder speichern'});images.checked=!!this.doorbell.history_images;images.onchange=()=>{this.doorbell.history_images=images.checked;this.schedulePreview();};const label=this.element('label');label.append(images,document.createTextNode('Vorschaubilder speichern'));bellSettings.append(label,this.element('small',{},'Nur ein frisches, bereits vorbereitetes Kamerabild wird gespeichert. Ohne solches Bild bleibt nur die Uhrzeit. Ausschalten und Speichern entfernt vorhandene Bilder.'));}
+    const historyView=this.element('button',{class:'secondary'},'Klingelverlauf ansehen');historyView.onclick=()=>this.showRingHistory();bellSettings.append(historyView);
     bellSection.append(bellSettings);
     const columns = this.element('div', {class: 'columns'});
     const canvasSection = this.element('section',{class:'canvas'});
@@ -951,7 +968,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const contentStart=settings.childNodes.length;
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung'],['cost','Energiekosten'],['weather','Wetter'],['countdown','Timer / Countdown']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung'],['cost','Energiekosten'],['weather','Wetter'],['countdown','Timer / Countdown'],['door_history','Klingelverlauf']]) {
         const option=this.element('option',{value},label);
         option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
@@ -1023,6 +1040,7 @@ export class DeskDisplayPanel extends HTMLElement {
         fit.append(this.element('option',{value:'contain'},'Vollständig anzeigen'),this.element('option',{value:'cover'},'Feld füllen / zuschneiden'));
         fit.value=widget.fit ?? 'contain';fit.onchange=()=>{widget.fit=fit.value;this.schedulePreview();};
         settings.append(upload,fit,this.element('small',{},'PNG, JPEG oder WebP; wird vor dem Speichern verkleinert. Transparente Logos werden unterstützt.'));
+      } else if(widget.kind==='door_history'){settings.append(this.element('small',{},'Zeigt die letzten vier Klingelereignisse dieses Displays. Speicherung und Bilder im Klingel-Tab ausdrücklich aktivieren.'));
       } else if (widget.kind === 'clock') {
         const format=this.element('select',{'aria-label':'Uhrzeitformat'});
         for (const [value,label] of [['time','Uhrzeit · HH:MM'],['date','Datum · TT.MM.JJJJ'],['datetime','Datum und Uhrzeit']])
@@ -1286,7 +1304,7 @@ export class DeskDisplayPanel extends HTMLElement {
   async preview(quiet = false) {
     const sequence=++this.previewSequence;
     try {
-      const result=await this._hass.callWS({type:'desk_display/preview',layout:this.documentLayout(),doorbell:this.doorbell,overlay:this.overlayPreview,simulation:this.simulation,page:this.pageIndex??0});
+      const result=await this._hass.callWS({type:'desk_display/preview',entry_id:this.devices[this.selected]?.id,layout:this.documentLayout(),doorbell:this.doorbell,overlay:this.overlayPreview,simulation:this.simulation,page:this.pageIndex??0});
       if(sequence!==this.previewSequence)return;
       this.previewImage=`data:image/png;base64,${result.png}`;
       this.shadowRoot.querySelector('.stage img').src=this.previewImage;

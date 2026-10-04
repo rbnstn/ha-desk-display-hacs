@@ -14,6 +14,9 @@ def render_image(layout, states, media=None):
     layout = resolve_layout(validate_layout(layout),states)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
+        if widget['kind']=='door_history':
+            from .ring_history import tile as ring_tile
+            tile=ring_tile(widget,states,layout.get('theme','material_dark'));image.paste(tile,(widget['x'],widget['y']),tile);continue
         from .data_widgets import KINDS as DATA_KINDS, tile as data_tile
         if widget['kind'] in DATA_KINDS:
             tile=data_tile(widget,states,layout.get('theme','material_dark'));image.paste(tile,(widget['x'],widget['y']),tile);continue

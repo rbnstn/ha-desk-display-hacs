@@ -94,6 +94,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.notifications=[]
         self.temporary_page=None
         self.detail_widget=None;self.detail_deadline=0
+        from .ring_history import RingHistory
+        self.ring_history=RingHistory(hass,getattr(entry,"entry_id",entry.unique_id))
 
     @callback
     def async_start(self):
@@ -112,6 +114,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.entry.async_on_unload(stop_touch)
         self.entry.async_on_unload(self.stop_doorbell)
         self.entry.async_on_unload(async_track_time_interval(self.hass,self._rotate_page,timedelta(seconds=1)))
+        self.entry.async_on_unload(async_track_time_interval(self.hass,lambda _:self.hass.async_create_task(self.ring_history.expire()),timedelta(minutes=1)))
 
     def notify(self,message,duration=15,priority=0):
         now=monotonic();self.notifications=[n for n in self.notifications if n[2]>now]
@@ -286,6 +289,15 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         after = event.data.get("new_state")
         if is_ring(get_doorbell(self.entry.options),entity_id,before,after):
             self.show_doorbell()
+            config=get_doorbell(self.entry.options)
+            if config.get('history_enabled'):
+                frame=None;media=getattr(self,'media',None)
+                if media and config.get('history_images'):
+                    for worker in (media,getattr(media,'preloader',None)):
+                        if worker and getattr(worker,'signature',None) and worker.signature[0]==config['camera'] and worker.readiness().get('state')=='ready':
+                            key=worker.signature[:3];data=worker.frames.get(key)
+                            if data:frame=(data,key[1],key[2]);break
+                self.hass.async_create_task(self.ring_history.record(config,frame))
             return
         layout=current_layout(self)
         saved=get_layout(self.entry.options)
@@ -363,6 +375,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 await self.client.set_debug(layout['debug'])
                 info['debug_enabled'] = layout['debug']
             states = snapshot_states(self.hass, layout)
+            if hasattr(self,'ring_history'):states['__ring_history__']=self.ring_history.snapshot(self.hass.config.time_zone if hasattr(self.hass,'config') else 'UTC')
             states["__media_age__"]={}
             if media:
                 for session in (media,getattr(media,"preloader",None)):

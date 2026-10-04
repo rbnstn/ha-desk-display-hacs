@@ -14,7 +14,7 @@ from .doorbell import get_doorbell, validate_doorbell, overlay_layout
 
 @callback
 def register_commands(hass):
-    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics):
+    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics, ringing_history):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -42,7 +42,7 @@ def list_displays(hass, connection, msg):
 
 @websocket_api.websocket_command({"type": "desk_display/preview", vol.Required("layout"): dict,
                                   vol.Optional('doorbell'):dict, vol.Optional('overlay',default=False):bool,
-                                  vol.Optional('simulation'):dict,vol.Optional('page',default=0):vol.All(int,vol.Range(min=0,max=3))})
+                                  vol.Optional('simulation'):dict,vol.Optional('entry_id'):str,vol.Optional('page',default=0):vol.All(int,vol.Range(min=0,max=3))})
 @websocket_api.require_admin
 @websocket_api.async_response
 async def preview(hass, connection, msg):
@@ -57,6 +57,8 @@ async def preview(hass, connection, msg):
         connection.send_error(msg["id"], "invalid_layout", str(err))
         return
     states = snapshot_states(hass, layout)
+    selected=hass.data.get(DOMAIN,{}).get(msg.get('entry_id',''))
+    if selected and hasattr(selected,'ring_history'):states['__ring_history__']=selected.ring_history.snapshot(hass.config.time_zone)
     from .history import augment_states
     await augment_states(hass,layout,states)
     try:
@@ -113,6 +115,7 @@ async def save(hass, connection, msg):
     coordinator = hass.data[DOMAIN].get(entry.entry_id)
     sent = False
     if coordinator is not None:
+        await coordinator.ring_history.configure(doorbell)
         coordinator.stop_doorbell()
         coordinator.page_index=min(msg.get('page',0),len(layout.get('pages',[])))
         coordinator.page_deadline=0
@@ -178,3 +181,14 @@ def diagnostics(hass,connection,msg):
     connection.send_result(msg['id'],{'connected':coordinator.last_update_success,'firmware':data.get('version','unbekannt'),
         'brightness_control':bool(data.get('brightness_control')),'ota_update':bool(data.get('ota_update')),
         'age':round(__import__('time').monotonic()-coordinator.last_confirmed_at) if coordinator.last_confirmed_at else None})
+
+
+@websocket_api.websocket_command({'type':'desk_display/ringing_history',vol.Required('entry_id'):str,vol.Optional('clear',default=False):bool})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ringing_history(hass,connection,msg):
+    coordinator=hass.data.get(DOMAIN,{}).get(msg['entry_id'])
+    if coordinator is None:
+        connection.send_error(msg['id'],'not_found','Display nicht gefunden');return
+    if msg.get('clear'):await coordinator.ring_history.clear();await coordinator.async_refresh()
+    connection.send_result(msg['id'],{'records':coordinator.ring_history.snapshot(hass.config.time_zone)})

@@ -391,3 +391,7 @@ Neue Elemente für Energieverbrauch × Strompreis, momentane Kostenrate, HA-Wett
 ## Version 0.26.0: Detailansicht und Wischgesten
 
 Optionale HA-Wert-Detailansicht mit Recorder-Verlauf, automatischer Rückkehr und Schließen. Wischgesten auf freien Flächen wechseln Seiten, Navigationsleiste optional ausblendbar. Firmware 0.8.0 für Wischen; horizontales Ziehen von Slidern bleibt unterstützt.
+
+## Version 0.27.0: Optionaler Klingelverlauf und Aufbewahrung
+
+Opt-in-Verlauf echter Klingelereignisse mit maximal 20 Einträgen, 1–30 Tagen Aufbewahrung, optionalen frischen Vorschaubildern und eigenem Anzeigeelement. Speicherung lokal in HA; Verlauf und Bilder können im Designer eingesehen und gelöscht werden. Enthält alle zwölf Verbesserungen aus 0.23–0.27.

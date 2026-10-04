@@ -25,7 +25,7 @@ async def async_setup(hass, config):
     await panel_custom.async_register_panel(
         hass, frontend_url_path="desk-display", webcomponent_name="desk-display-panel",
         sidebar_title="Desk Display", sidebar_icon="mdi:monitor-dashboard",
-        module_url="/desk-display/panel.js?v=0.26.0", require_admin=True,
+        module_url="/desk-display/panel.js?v=0.27.0", require_admin=True,
     )
     return True
 
@@ -33,6 +33,8 @@ async def async_setup(hass, config):
 async def async_setup_entry(hass, entry):
     client = DisplayClient(async_get_clientsession(hass), entry.data["host"], entry.data["key"])
     coordinator = DeskDisplayCoordinator(hass, entry, client)
+    from .doorbell import get_doorbell
+    await coordinator.ring_history.configure(get_doorbell(entry.options))
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
     coordinator.async_start()

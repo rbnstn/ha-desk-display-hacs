@@ -6,7 +6,7 @@ from .models import ENTITY, get_layout, validate_layout
 from .actions import BUTTON_SERVICES
 
 DEFAULT_DOORBELL={'enabled':False,'entity_id':'','camera':'','open_entity_id':'','duration':30,'preload':False,
-                 'post_open_duration':45,'door_state_entity_id':'','open_enabled':True,'open_label':'Tuer oeffnen','layout':None}
+                 'post_open_duration':45,'door_state_entity_id':'','open_enabled':True,'open_label':'Tuer oeffnen','layout':None,'history_enabled':False,'history_images':False,'history_days':7}
 
 
 def validate_doorbell(value):
@@ -14,6 +14,7 @@ def validate_doorbell(value):
     if not isinstance(value,dict) or not required<=set(value)<=set(DEFAULT_DOORBELL):
         raise ValueError('Ungueltige Klingelkonfiguration')
     value={**DEFAULT_DOORBELL,**value}
+    if type(value['history_enabled']) is not bool or type(value['history_images']) is not bool or type(value['history_days']) is not int or not 1<=value['history_days']<=30:raise ValueError('Klingelverlauf: 1 bis 30 Tage, Speicherung optional')
     if type(value['open_enabled']) is not bool or not isinstance(value['open_label'],str) or not 1<=len(value['open_label'].strip())<=80 or any(ord(c)<32 for c in value['open_label']):
         raise ValueError('Ungueltige Tuerknopf-Einstellungen')
     if type(value['preload']) is not bool:
