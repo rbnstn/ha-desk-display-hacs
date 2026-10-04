@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.6.3**, Home Assistant **2026.9 oder neuer**.
+Version **0.6.4**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -36,7 +36,7 @@ ausgelöst. Die Editor-Vorschau ist ausschließlich zum Gestalten.
 Der MVP unterstützt eine normale Seite pro Display und ein optionales Klingel-
 Overlay. Pro Ansicht läuft ein Videofeld.
 
-## Optionales Klingel-Overlay ab 0.6.3
+## Optionales Klingel-Overlay ab 0.6.4
 
 Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen:
 
@@ -50,7 +50,7 @@ Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen
   Zusätzliche Kamera-Verbindung und Rechenlast auf dem HA-Host; keine Standby-
   Videoübertragung zum Display. Nach dem Speichern den ersten Kamerastart abwarten.
   Bis zu zwei Decoder (normales Videofeld und vorbereitete Overlay-Kamera).
-  Ab 0.6.3 wird parallel ein HA-Kamerabild vorbereitet, solange der Decoder noch
+  Ab 0.6.4 wird parallel ein HA-Kamerabild vorbereitet, solange der Decoder noch
   keinen aktuellen Streamframe liefert. Es wird höchstens alle zwei Sekunden
   nach Abschluss des letzten Abrufs neu angefragt; bei laufendem Stream entfallen
   diese Abrufe. Das Overlay verwendet das vorbereitete Bild und wechselt danach
@@ -61,6 +61,19 @@ Im Designer **Klingel-Overlay (optional)** aufklappen, aktivieren und auswählen
   Beim Entladen oder Deaktivieren endet die Vorbereitung; veraltete Bereitschaftsbilder
   werden nicht als erstes Overlay-Bild verwendet.
 - **Automatisch schließen nach**: 5–300 Sekunden, standardmäßig 30.
+
+Ab 0.6.4 zeigt der Türknopf **Wird geöffnet**, **Befehl ausgeführt**, **Fehler**
+oder bei Timeout **Ergebnis unklar**. Die Rückmeldung bestätigt die Verarbeitung
+in HA, nicht den physischen Durchgang. Optional einen **Türkontakt** auswählen:
+`binary_sensor` Ein = Tür offen, Aus = geschlossen. Fehlender/unverfügbarer Kontakt
+zeigt einen unbekannten Status. Ohne Kontakt wird bei Schloss-Entitäten der
+Schlosszustand angezeigt; „entriegelt“ bedeutet nicht, dass die Tür offen steht.
+
+**Nach Türaktion mindestens weiter anzeigen** stellt 5–300 Sekunden ein,
+standardmäßig 45. Der Timer startet nach der Aktion erneut; eine bereits längere
+Restlaufzeit wird nicht verkürzt. Wiederholtes Antippen innerhalb von drei Sekunden
+und Türaktionen bei offenem Kontakt werden ignoriert. Unsichere oder fehlgeschlagene
+Aktionen werden niemals automatisch wiederholt.
 
 Mit **Speichern & übertragen** übernehmen. **Overlay-Vorschau** öffnet nur die
 Editor-Vorschau. **Overlay am Display testen** zeigt die gespeicherte Ansicht am

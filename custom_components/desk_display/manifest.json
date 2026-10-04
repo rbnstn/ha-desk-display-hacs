@@ -1,7 +1,7 @@
 {
   "domain": "desk_display",
   "name": "Desk Display",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "documentation": "https://github.com/rbnstn/ha-desk-display-hacs",
   "issue_tracker": "https://github.com/rbnstn/ha-desk-display-hacs/issues",
   "codeowners": ["@timrabenstein"],

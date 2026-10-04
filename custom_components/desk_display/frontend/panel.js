@@ -116,6 +116,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.doorbell = structuredClone(this.devices[this.selected]?.doorbell ??
       {enabled:false,entity_id:'',camera:'',open_entity_id:'',duration:30,preload:false});
     this.doorbell.preload ??= false;
+    this.doorbell.post_open_duration ??= 45;
+    this.doorbell.door_state_entity_id ??= '';
     this.overlayPreview = false;
   }
   status(message) {
@@ -189,7 +191,8 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const [key,label,domains] of [
       ['entity_id','Klingel-Auslöser',['binary_sensor','event','input_button']],
       ['camera','Overlay-Kamera',['camera']],
-      ['open_entity_id','Türöffner / Nuki-Schloss',['button','input_button','script','lock']]]) {
+      ['open_entity_id','Türöffner / Nuki-Schloss',['button','input_button','script','lock']],
+      ['door_state_entity_id','Türkontakt (optional)',['binary_sensor']]]) {
       const picker=this.element('ha-entity-picker');picker.hass=this._hass;
       picker.label=label;picker.includeDomains=domains;picker.value=this.doorbell[key];
       picker.addEventListener('value-changed',event=>{this.doorbell[key]=event.detail.value ?? '';this.schedulePreview();});
@@ -205,6 +208,9 @@ export class DeskDisplayPanel extends HTMLElement {
     bellSettings.append(this.element('small',{id:'doorbell-ready',role:'status'},'Kamerabereitschaft wird geprüft …'));
     this.field(bellSettings,'Automatisch schließen nach (Sekunden)',this.doorbell.duration,
       value=>this.doorbell.duration=Number(value),{type:'number',min:5,max:300,step:1});
+    this.field(bellSettings,'Nach Türaktion mindestens weiter anzeigen (Sekunden)',this.doorbell.post_open_duration,
+      value=>this.doorbell.post_open_duration=Number(value),{type:'number',min:5,max:300,step:1});
+    bellSettings.append(this.element('small',{},'Der Türknopf zeigt Verarbeitung, ausgeführten Befehl oder Fehler. Nur ein Türkontakt (Ein = offen) bestätigt die physisch offene Tür; entriegelt beschreibt den Schlosszustand. Die Ansicht bleibt nach der Aktion standardmäßig noch 45 Sekunden offen.'));
     const overlayPreview=this.element('button',{class:'secondary'},this.overlayPreview?'Normale Vorschau':'Overlay-Vorschau');
     overlayPreview.onclick=()=>{this.overlayPreview=!this.overlayPreview;this.draw();this.preview();};
     const test=this.element('button',{class:'secondary'},'Overlay am Display testen');

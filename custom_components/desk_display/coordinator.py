@@ -3,6 +3,7 @@
 import logging
 import asyncio
 import uuid
+from time import monotonic
 from datetime import timedelta
 import aiohttp
 from homeassistant.core import callback
@@ -66,6 +67,11 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.touch_stopped = False
         self.doorbell_active=False
         self.doorbell_timer=None
+        self.doorbell_deadline=0
+        self.doorbell_generation=0
+        self.doorbell_session=0
+        self.doorbell_feedback=''
+        self.doorbell_last_press=0
 
     @callback
     def async_start(self):
@@ -90,6 +96,28 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             self.doorbell_timer()
         self.doorbell_timer=None
         self.doorbell_active=False
+        self.doorbell_deadline=0
+        self.doorbell_generation+=1
+        self.doorbell_session+=1
+        self.doorbell_feedback=''
+
+    @callback
+    def _arm_doorbell(self,seconds):
+        if self.doorbell_timer:
+            self.doorbell_timer()
+        self.doorbell_generation+=1
+        generation=self.doorbell_generation
+        self.doorbell_deadline=monotonic()+seconds
+        @callback
+        def expire(_now):
+            if generation==self.doorbell_generation:
+                self.hide_doorbell()
+        self.doorbell_timer=async_call_later(self.hass,seconds,expire)
+
+    @callback
+    def extend_doorbell(self):
+        seconds=get_doorbell(self.entry.options)['post_open_duration']
+        self._arm_doorbell(max(seconds,self.doorbell_deadline-monotonic()))
 
     @callback
     def show_doorbell(self):
@@ -98,7 +126,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             return False
         self.stop_doorbell()
         self.doorbell_active=True
-        self.doorbell_timer=async_call_later(self.hass,config['duration'],self.hide_doorbell)
+        self._arm_doorbell(config['duration'])
         self.hass.async_create_task(self.async_refresh())
         return True
 
@@ -133,8 +161,32 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                 domain, service, entity_id = action
                 state = self.hass.states.get(entity_id)
                 if action_available(state, domain):
-                    await self.hass.services.async_call(
-                        domain, service, {"entity_id": entity_id}, blocking=True)
+                    config=get_doorbell(self.entry.options)
+                    overlay_action=self.doorbell_active and entity_id==config['open_entity_id']
+                    if overlay_action:
+                        contact=self.hass.states.get(config['door_state_entity_id']) if config['door_state_entity_id'] else None
+                        if monotonic()-self.doorbell_last_press<3 or (contact and contact.state=='on'):
+                            return
+                        self.doorbell_last_press=monotonic()
+                        session=self.doorbell_session
+                        self.doorbell_feedback='pending'
+                        self.extend_doorbell()
+                        await self.async_refresh()
+                    try:
+                        async with asyncio.timeout(10):
+                            await self.hass.services.async_call(
+                                domain, service, {"entity_id": entity_id}, blocking=True)
+                    except TimeoutError:
+                        result='uncertain'
+                    except Exception:
+                        result='error'
+                        LOGGER.warning('Display door/button action failed')
+                    else:
+                        result='sent'
+                    if overlay_action and self.doorbell_active and self.doorbell_session==session:
+                        self.doorbell_feedback=result
+                        self.extend_doorbell()
+                        await self.async_refresh()
         except (aiohttp.ClientError, TimeoutError, ValueError):
             LOGGER.debug("Touch request failed", exc_info=True)
         except Exception:
@@ -158,7 +210,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             return
         layout=current_layout(self)
         widgets=layout['widgets']+layout.get('overlay',{}).get('widgets',[])
-        if not any(widget["kind"] not in ("text", "media") and widget["entity_id"] == entity_id
+        contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
+        if not contact_changed and not any(widget["kind"] not in ("text", "media") and widget["entity_id"] == entity_id
                    for widget in widgets):
             return
         before = event.data.get("old_state")

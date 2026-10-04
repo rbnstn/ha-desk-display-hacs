@@ -5,24 +5,28 @@ from datetime import datetime, timezone
 from .models import ENTITY, get_layout, validate_layout
 from .actions import BUTTON_SERVICES
 
-DEFAULT_DOORBELL={'enabled':False,'entity_id':'','camera':'','open_entity_id':'','duration':30,'preload':False}
+DEFAULT_DOORBELL={'enabled':False,'entity_id':'','camera':'','open_entity_id':'','duration':30,'preload':False,
+                 'post_open_duration':45,'door_state_entity_id':''}
 
 
 def validate_doorbell(value):
-    if not isinstance(value,dict) or set(value) not in (set(DEFAULT_DOORBELL),set(DEFAULT_DOORBELL)-{'preload'}):
+    required={'enabled','entity_id','camera','open_entity_id','duration'}
+    if not isinstance(value,dict) or not required<=set(value)<=set(DEFAULT_DOORBELL):
         raise ValueError('Ungueltige Klingelkonfiguration')
     value={**DEFAULT_DOORBELL,**value}
     if type(value['preload']) is not bool:
         raise ValueError('Ungueltige Kameravorbereitung')
     if type(value['enabled']) is not bool or type(value['duration']) is not int or not 5<=value['duration']<=300:
         raise ValueError('Klingelansicht: Dauer 5 bis 300 Sekunden')
+    if type(value['post_open_duration']) is not int or not 5<=value['post_open_duration']<=300:
+        raise ValueError('Nachlauf nach Oeffnen: 5 bis 300 Sekunden')
     domains={'entity_id':('binary_sensor','event','input_button'),
-             'camera':('camera',),'open_entity_id':tuple(BUTTON_SERVICES)}
+             'camera':('camera',),'open_entity_id':tuple(BUTTON_SERVICES),'door_state_entity_id':('binary_sensor',)}
     for key,allowed in domains.items():
         entity=value[key]
         if not isinstance(entity,str) or (entity and (not ENTITY.fullmatch(entity) or entity.split('.')[0] not in allowed)):
             raise ValueError('Ungueltige Entitaet fuer '+key)
-        if value['enabled'] and not entity:
+        if value['enabled'] and not entity and key!='door_state_entity_id':
             raise ValueError('Bitte Klingel, Kamera und Tuer-Button auswaehlen')
     return copy.deepcopy(value)
 
@@ -62,6 +66,26 @@ def current_layout(coordinator):
     config=get_doorbell(coordinator.entry.options)
     if getattr(coordinator,'doorbell_active',False) and config['enabled']:
         layout['overlay']=overlay_layout(config)
+        status=getattr(coordinator,'doorbell_feedback','')
+        button=layout['overlay']['widgets'][-1]
+        labels={'pending':('Wird geoeffnet ...','#ffd166'),
+                'sent':('Befehl ausgefuehrt','#57d9b0'),
+                'error':('Fehler - erneut tippen','#ff8080'),
+                'uncertain':('Ergebnis unklar','#ffd166')}
+        if status in labels:
+            button['text'],button['color']=labels[status]
+        header=layout['overlay']['widgets'][0]
+        states=getattr(getattr(coordinator,'hass',None),'states',None)
+        contact=states.get(config['door_state_entity_id']) if states and config['door_state_entity_id'] else None
+        lock=states.get(config['open_entity_id']) if states and config['open_entity_id'].startswith('lock.') else None
+        if config['door_state_entity_id']:
+            header['text']='Tuer offen' if contact and contact.state=='on' else 'Tuer geschlossen' if contact and contact.state=='off' else 'Tuerstatus unbekannt'
+            header['color']='#57d9b0' if contact and contact.state=='on' else '#ffffff'
+        elif lock and lock.state in ('open','opening','unlocked','locked'):
+            header['text']={'open':'Falle freigegeben','opening':'Schloss oeffnet ...',
+                            'unlocked':'Schloss entriegelt','locked':'Schloss verriegelt'}[lock.state]
+        elif status=='sent':
+            header['text']='Oeffnungsbefehl ausgefuehrt'
     return layout
 
 
