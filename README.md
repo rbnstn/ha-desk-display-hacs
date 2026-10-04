@@ -335,3 +335,7 @@ Klingel-Tab ohne überflüssiges Accordion. Tabwechsel aktiviert automatisch die
 ## Version 0.15.0: Seitenverwaltung und festes Raster
 
 Seitenverwaltung direkt an der Vorschau und im eigenen Reiter. Navigation reicht bis zum unteren Displayrand. Feste zweireihige Elementliste ersetzt das doppelte Dropdown. Raster immer aktiv; Breite und Höhe rasten beim Ziehen ein.
+
+## Version 0.16.0: Icons, Trennlinien und zehn Elemente
+
+Bis zu zehn Elemente je Seite. Bild ersetzt Bild / Logo; neue HA-Icon-Auswahl mit frei wählbarer Farbe und Größe. Neue horizontale oder vertikale Trennlinie mit einstellbarer Stärke. Klassisch entfällt aus der Designauswahl; bestehende Layouts bleiben lesbar. Duplizieren wählt nur die neue Kopie.

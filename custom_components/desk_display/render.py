@@ -14,7 +14,7 @@ def render_image(layout, states, media=None):
     layout = resolve_layout(validate_layout(layout),states)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
-        if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock','navigation'):
+        if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock','navigation','icon','line'):
             styled = widget
             if layout.get('theme') not in PALETTES and widget['kind']!='navigation':
                 styled = {**widget, 'style':{**widget.get('style',{}),'surface':False,'radius':0}}

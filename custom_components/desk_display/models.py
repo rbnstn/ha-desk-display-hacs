@@ -58,8 +58,8 @@ def validate_layout(layout, nested=False):
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
     widgets = layout["widgets"]
-    if not isinstance(widgets, list) or len(widgets) > 12 or sum(isinstance(w,dict) and w.get('kind')!='navigation' for w in widgets)>8:
-        raise ValueError("Maximal acht Elemente")
+    if not isinstance(widgets, list) or len(widgets) > 14 or sum(isinstance(w,dict) and w.get('kind')!='navigation' for w in widgets)>10:
+        raise ValueError("Maximal zehn Elemente")
     if type(layout.get("debug", False)) is not bool:
         raise ValueError("Debug-Anzeige muss ein- oder ausgeschaltet sein")
     result = {"background": layout["background"], "widgets": [], "debug": layout.get("debug", False)}
@@ -84,15 +84,15 @@ def validate_layout(layout, nested=False):
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] not in ("text", "media", "image", "clock", "navigation") and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] not in ("text", "media", "image", "clock", "navigation", "icon", "line") and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
         domain = widget["entity_id"].split(".", 1)[0]
         if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
@@ -141,15 +141,25 @@ def validate_layout(layout, nested=False):
             normalized['clock_format']=widget.get('clock_format','time')
         else:
             normalized.pop('clock_format',None)
-        if widget['kind']=='image':
+        if widget['kind'] in ('image','icon'):
             from .pictures import image_bytes
-            image_bytes(widget.get('image',''))
+            if widget['kind']=='image' or widget.get('image'):image_bytes(widget.get('image',''))
             if widget.get('fit','contain') not in ('contain','cover'):
                 raise ValueError('Ungueltige Bildanpassung')
             normalized['fit']=widget.get('fit','contain')
         else:
             normalized.pop('image',None)
             normalized.pop('fit',None)
+        if widget['kind']=='icon':
+            name=widget.get('icon','mdi:home')
+            if not isinstance(name,str) or len(name)>100 or not re.fullmatch(r'[a-z0-9_-]+:[a-z0-9_-]+',name):raise ValueError('Ungueltiges HA-Icon')
+            normalized['icon']=name
+        else:normalized.pop('icon',None)
+        if widget['kind']=='line':
+            thickness=widget.get('line_width',2)
+            if type(thickness) is not int or not 1<=thickness<=8:raise ValueError('Linienstaerke: 1 bis 8 Pixel')
+            normalized['line_width']=thickness
+        else:normalized.pop('line_width',None)
         if "style" in widget:
             style = widget["style"]
             if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align"}:
@@ -173,7 +183,7 @@ def validate_layout(layout, nested=False):
         else:
             normalized.pop("source", None)
             normalized.pop("fps", None)
-        if normalized["kind"] in ("text", "media", "image", "clock"):
+        if normalized["kind"] in ("text", "media", "image", "clock", "icon", "line"):
             normalized["entity_id"] = ""
         result["widgets"].append(normalized)
     if sum(w["kind"] == "media" for w in result["widgets"]) > 1:

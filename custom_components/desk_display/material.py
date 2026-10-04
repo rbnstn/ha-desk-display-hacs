@@ -18,6 +18,20 @@ def material_tile(widget, states, media, theme):
     tile = Image.new("RGBA", (width, height))
     draw = ImageDraw.Draw(tile)
     kind = widget["kind"]
+    if kind == 'line':
+        thickness=min(widget.get('line_width',2),height if width>=height else width)
+        if width>=height:
+            y=(height-thickness)//2;draw.rectangle((0,y,width-1,y+thickness-1),fill=widget['color'])
+        else:
+            x=(width-thickness)//2;draw.rectangle((x,0,x+thickness-1,height-1),fill=widget['color'])
+        return tile
+    if kind == 'icon':
+        if widget.get('image'):
+            picture=picture_tile(widget['image'],width,height,'contain')
+            tile=Image.new('RGBA',(width,height),widget['color']);tile.putalpha(picture.getchannel('A'))
+        else:
+            draw.text((2,2),'Icon',font=ImageFont.load_default(size=12),fill=widget['color'])
+        return tile
     if kind == 'image':
         picture = picture_tile(widget['image'], width, height, widget.get('fit','contain'))
         mask = Image.new('L',(width,height))
