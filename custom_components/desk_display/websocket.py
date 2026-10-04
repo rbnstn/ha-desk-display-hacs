@@ -30,13 +30,15 @@ def list_displays(hass, connection, msg):
          "debug_overlay": bool(coordinator and (coordinator.data or {}).get("debug_overlay")),
          "jpeg_regions": bool(coordinator and (coordinator.data or {}).get("jpeg_regions")),
          "layout": get_layout(entry.options), "doorbell":get_doorbell(entry.options),
+         "backups":entry.options.get('backups',[]),
          "doorbell_active":bool(coordinator and coordinator.doorbell_active)}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ])
 
 
 @websocket_api.websocket_command({"type": "desk_display/preview", vol.Required("layout"): dict,
-                                  vol.Optional('doorbell'):dict, vol.Optional('overlay',default=False):bool})
+                                  vol.Optional('doorbell'):dict, vol.Optional('overlay',default=False):bool,
+                                  vol.Optional('simulation'):dict})
 @websocket_api.require_admin
 @websocket_api.async_response
 async def preview(hass, connection, msg):
@@ -49,6 +51,11 @@ async def preview(hass, connection, msg):
         connection.send_error(msg["id"], "invalid_layout", str(err))
         return
     states = snapshot_states(hass, layout)
+    try:
+        from .simulation import apply_simulation
+        simulated=apply_simulation(states,layout,msg.get('simulation',{}))
+    except ValueError as error:
+        connection.send_error(msg['id'],'invalid_simulation',str(error));return
     frames = {}
     statuses = []
     for coordinator in hass.data.get(DOMAIN, {}).values():
@@ -66,7 +73,7 @@ async def preview(hass, connection, msg):
                                          'message':MESSAGES.get(session.error_code, '')})
     image = await hass.async_add_executor_job(render_preview, layout, states, frames)
     connection.send_result(msg["id"], {"png": base64.b64encode(image).decode("ascii"),
-                                      "media_status":statuses})
+                                      "media_status":statuses,"simulated":simulated})
 
 
 @websocket_api.websocket_command({"type": "desk_display/save", vol.Required("entry_id"): str,
@@ -84,14 +91,19 @@ async def save(hass, connection, msg):
     except ValueError as err:
         connection.send_error(msg["id"], "invalid_layout", str(err))
         return
-    hass.config_entries.async_update_entry(entry, options={**entry.options, "layout": layout,'doorbell':doorbell})
+    from homeassistant.util import dt as dt_util
+    backups=list(entry.options.get('backups',[]))
+    previous={'layout':get_layout(entry.options),'doorbell':get_doorbell(entry.options)}
+    if previous!={'layout':layout,'doorbell':doorbell}:
+        backups=([{'at':dt_util.utcnow().isoformat(),**previous}]+backups)[:3]
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "layout": layout,'doorbell':doorbell,'backups':backups})
     coordinator = hass.data[DOMAIN].get(entry.entry_id)
     sent = False
     if coordinator is not None:
         coordinator.stop_doorbell()
         await coordinator.async_refresh()
         sent = coordinator.last_update_success
-    connection.send_result(msg["id"], {"saved": True, "sent": sent})
+    connection.send_result(msg["id"], {"saved": True, "sent": sent,"backups":backups})
 
 
 @websocket_api.websocket_command({'type':'desk_display/doorbell_test',vol.Required('entry_id'):str,
