@@ -91,6 +91,12 @@ def current_layout(coordinator):
                             'unlocked':'Schloss entriegelt','locked':'Schloss verriegelt'}[lock.state]
         elif status=='sent':
             header['text']='Oeffnungsbefehl ausgefuehrt'
+    from .rules import entities, resolve_layout
+    hass=getattr(coordinator,'hass',None)
+    if hass:
+        raw={entity:(state.state,'') if (state:=hass.states.get(entity)) else ('unavailable','')
+             for w in layout['widgets'] for entity in entities(w)}
+        layout=resolve_layout(layout,{'__raw__':raw})
     return layout
 
 

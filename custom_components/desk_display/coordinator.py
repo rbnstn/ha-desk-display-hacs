@@ -20,6 +20,7 @@ from .render import render_frame, render_jpeg
 from .actions import action_at
 from .transport import regions
 from .doorbell import current_layout, get_doorbell, is_ring, video_widget
+from .rules import entities
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ def snapshot_states(hass, layout):
     now=dt_util.now()
     result = {'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
+        for entity in entities(widget):
+            raw=hass.states.get(entity)
+            result['__raw__'][entity]=(raw.state,'') if raw else ('unavailable','')
         if widget["kind"] in ("text", "media", "image", "clock"):
             continue
         if widget['kind']=='sensor':
@@ -216,9 +220,10 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             self.show_doorbell()
             return
         layout=current_layout(self)
-        widgets=layout['widgets']+layout.get('overlay',{}).get('widgets',[])
+        saved=get_layout(self.entry.options)
+        widgets=saved['widgets']+layout.get('overlay',{}).get('widgets',[])
         contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
-        if not contact_changed and not any(widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id',''))
+        if not contact_changed and not any(entity_id in entities(widget) or (widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id','')))
                    for widget in widgets):
             return
         before = event.data.get("old_state")

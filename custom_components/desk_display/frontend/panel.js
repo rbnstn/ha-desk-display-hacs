@@ -18,8 +18,7 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const picker of this.shadowRoot?.querySelectorAll?.('ha-entity-picker') ?? []) picker.hass = value;
     if (this.isConnected && this.loaded && this.layout && previous &&
         this.layout.widgets.some(widget => {
-          if (['text','clock','image','media'].includes(widget.kind)) return false;
-          return [widget.entity_id,widget.value?.fallback_entity_id].filter(Boolean).some(entity=>{
+          return [widget.entity_id,widget.value?.fallback_entity_id,widget.visible_when?.entity_id,...(widget.rules??[]).map(r=>r.when.entity_id)].filter(Boolean).some(entity=>{
             const before=previous.states?.[entity],after=value.states?.[entity];
             return before?.state!==after?.state || before?.attributes?.unit_of_measurement!==after?.attributes?.unit_of_measurement;
           });
@@ -216,6 +215,14 @@ export class DeskDisplayPanel extends HTMLElement {
     body.append(...Array.from(parent.childNodes).slice(start));
     group.append(body);parent.append(group);
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
+  }
+  conditionFields(parent,condition) {
+    const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label='Bedingungs-Entität';picker.value=condition.entity_id;
+    picker.addEventListener('value-changed',event=>{condition.entity_id=event.detail.value??'';this.schedulePreview();});parent.append(picker);
+    const select=this.element('select',{'aria-label':'Vergleich'});
+    for(const [value,text] of [['eq','Ist gleich'],['ne','Ist ungleich'],['gt','Größer als'],['gte','Mindestens'],['lt','Kleiner als'],['lte','Höchstens'],['missing','Nicht verfügbar']])select.append(this.element('option',{value},text));
+    select.value=condition.op;select.onchange=()=>{condition.op=select.value;this.schedulePreview();};parent.append(select);
+    this.field(parent,'Vergleichswert (originaler HA-Zustand)',condition.value,value=>condition.value=value);
   }
   switchInspectorTab(tab) {
     if (!['element','display','doorbell'].includes(tab)) return;
@@ -550,6 +557,19 @@ export class DeskDisplayPanel extends HTMLElement {
       settings.append(alignment,this.element('small',{},'Ausrichtung bezieht sich auf das ganze Display. Die oberste Ebene bestimmt auch das Touch-Ziel. Maximal acht Elemente und ein Videofeld.'));
       this.wrapFields(settings,arrangeStart,'arrange','Anordnen');
       const contentStart=settings.childNodes.length;
+      const ruleStart=settings.childNodes.length;
+      const visible=this.element('input',{type:'checkbox','aria-label':'Sichtbarkeitsbedingung'});visible.checked=!!widget.visible_when;
+      visible.onchange=()=>{if(visible.checked)widget.visible_when={entity_id:widget.entity_id,op:'eq',value:'on'};else delete widget.visible_when;this.draw();this.schedulePreview();};
+      const visibleLabel=this.element('label');visibleLabel.append(visible,document.createTextNode('Nur bei erfüllter Bedingung anzeigen'));settings.append(visibleLabel);
+      if(widget.visible_when)this.conditionFields(settings,widget.visible_when);
+      for(const [i,rule] of (widget.rules??[]).entries()) {
+        const box=this.element('details');box.open=true;box.append(this.element('summary',{},`Farbregel ${i+1}`));
+        this.conditionFields(box,rule.when);this.field(box,'Textfarbe',rule.color,v=>rule.color=v,{type:'color'});this.field(box,'Symbol / Präfix (optional)',rule.symbol,v=>rule.symbol=v,{maxlength:4});
+        const remove=this.element('button',{class:'secondary'},'Regel entfernen');remove.onclick=()=>{widget.rules.splice(i,1);this.draw();this.schedulePreview();};box.append(remove);settings.append(box);
+      }
+      const addRule=this.element('button',{class:'secondary'},'Farbregel hinzufügen');addRule.disabled=(widget.rules?.length??0)>=4;
+      addRule.onclick=()=>{(widget.rules??=[]).push({when:{entity_id:widget.entity_id,op:'gt',value:'0'},color:'#57d9b0',symbol:''});this.draw();this.schedulePreview();};settings.append(addRule,this.element('small',{},'Erste passende Farbregel gewinnt. Vergleiche verwenden den HA-Rohwert vor Umrechnung. Nicht verfügbare Werte erfüllen nur „Nicht verfügbar“.'));
+      this.wrapFields(settings,ruleStart,'rules','Farben & Sichtbarkeit');
       const kind = this.element('select', {'aria-label':'Elementtyp'});
       for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild / Logo'],['clock','Uhrzeit / Datum']]) {
         kind.append(this.element('option',{value},label));

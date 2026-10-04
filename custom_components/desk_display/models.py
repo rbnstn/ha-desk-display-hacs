@@ -69,7 +69,7 @@ def validate_layout(layout):
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when"}:
             raise ValueError("Ungueltiges Element")
         if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock"):
             raise ValueError("Unbekannter Elementtyp")
@@ -95,6 +95,8 @@ def validate_layout(layout):
         if not isinstance(widget["color"], str) or not COLOR.fullmatch(widget["color"]):
             raise ValueError("Ungueltige Textfarbe")
         normalized = dict(widget)
+        from .rules import validate_rules
+        validate_rules(widget)
         if 'group' in widget and (not isinstance(widget['group'],str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,40}',widget['group'])):
             raise ValueError('Ungueltige Elementgruppe')
         if 'value' in widget:

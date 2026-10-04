@@ -6,11 +6,12 @@ from PIL import Image, ImageDraw, ImageFont
 from .const import HEIGHT, WIDTH
 from .models import validate_layout
 from .material import material_tile, PALETTES
+from .rules import resolve_layout
 
 
 def render_image(layout, states, media=None):
     """Render a snapshot of state strings; clip each widget to its rectangle."""
-    layout = validate_layout(layout)
+    layout = resolve_layout(validate_layout(layout),states)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
         if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock'):
