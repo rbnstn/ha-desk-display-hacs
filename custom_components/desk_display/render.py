@@ -14,6 +14,9 @@ def render_image(layout, states, media=None):
     layout = resolve_layout(validate_layout(layout),states)
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
+        from .widgets import KINDS, tile as extended_tile
+        if widget["kind"] in KINDS:
+            tile=extended_tile(widget,states,layout.get("theme","material_dark"));image.paste(tile,(widget["x"],widget["y"]),tile);continue
         if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock','navigation','icon','line'):
             styled = widget
             if layout.get('theme') not in PALETTES and widget['kind']!='navigation':

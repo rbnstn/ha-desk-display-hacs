@@ -84,9 +84,9 @@ def validate_layout(layout, nested=False):
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip"):
             raise ValueError("Unbekannter Elementtyp")
         if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
             raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
@@ -109,6 +109,10 @@ def validate_layout(layout, nested=False):
             raise ValueError("Das Element liegt ausserhalb des Displays")
         if not isinstance(widget["color"], str) or not COLOR.fullmatch(widget["color"]):
             raise ValueError("Ungueltige Textfarbe")
+        from .widgets import validate_config
+        validate_config(widget)
+        for flag in ("locked","hidden"):
+            if type(widget.get(flag,False)) is not bool:raise ValueError("Ungueltiger Elementstatus")
         normalized = dict(widget)
         if widget['kind']=='navigation':
             if type(widget.get('target')) is not int or not 0<=widget['target']<=3:raise ValueError('Ungueltige Zielseite')

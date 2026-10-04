@@ -176,7 +176,7 @@ export class DeskDisplayPanel extends HTMLElement {
     return this.layout.widgets.filter((w,i)=>indices.has(i));
   }
   moveSelection(dx,dy) {
-    const widgets=this.selectedWidgets();if (!widgets.length) return;
+    const widgets=this.selectedWidgets();if (widgets.some(w=>w.locked))return;if (!widgets.length) return;
     dx=Math.max(-Math.min(...widgets.map(w=>w.x)),Math.min(dx,480-Math.max(...widgets.map(w=>w.x+w.width))));
     dy=Math.max(-Math.min(...widgets.map(w=>w.y)),Math.min(dy,320-Math.max(...widgets.map(w=>w.y+w.height))));
     for (const w of widgets) {w.x+=dx;w.y+=dy;}
@@ -233,7 +233,7 @@ export class DeskDisplayPanel extends HTMLElement {
     if (save) save.disabled=!!this.saving;
     const select=this.shadowRoot?.querySelector?.('select[aria-label="Element auswählen"]');
     for (const [index,widget] of (this.layout?.widgets ?? []).entries()) {
-      const text=`${index+1}. ${this.widgetLabel(widget)}`;
+      const text=`${widget.locked?'🔒 ':''}${widget.hidden?'◌ ':''}${index+1}. ${this.widgetLabel(widget)}`;
       if (select?.options[index]) select.options[index].textContent=text+(widget.group?` · ${this.groupLabel(widget.group)}`:'');
       const button=this.shadowRoot?.querySelector?.(`.element-strip button[data-index="${index}"]`);
       if (button) {
@@ -255,10 +255,10 @@ export class DeskDisplayPanel extends HTMLElement {
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
   addWidget(kind) {
-    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line'].includes(kind))return;
+    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
-    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8]};
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0)?276:320;
@@ -308,7 +308,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -667,7 +667,7 @@ export class DeskDisplayPanel extends HTMLElement {
     stage.append(image);well.append(stage);canvasSection.append(well);
     const elementStrip=this.element('div',{class:'element-strip widget-strip','aria-label':'Elemente'});
     this.layout.widgets.forEach((widget,index)=>{
-      const choose=this.element('button',{'aria-pressed':String(this.selection?.has(index)||index===this.widgetIndex),'data-index':index,title:this.widgetLabel(widget)},`${index+1}. ${this.widgetLabel(widget)}`);
+      const choose=this.element('button',{'aria-pressed':String(this.selection?.has(index)||index===this.widgetIndex),'data-index':index,title:this.widgetLabel(widget)},`${widget.locked?'🔒 ':''}${widget.hidden?'◌ ':''}${index+1}. ${this.widgetLabel(widget)}`);
       if(widget.group)choose.append(this.element('span',{class:'group-badge'},this.groupLabel(widget.group)));
       choose.disabled=this.overlayPreview;choose.onclick=event=>this.selectWidget(index,event.ctrlKey||event.metaKey);elementStrip.append(choose);
     });
@@ -776,6 +776,10 @@ export class DeskDisplayPanel extends HTMLElement {
     const widget = this.layout.widgets[this.widgetIndex];
     if (widget) {
       const arrangeStart=settings.childNodes.length;
+      for(const [flag,title] of [['locked','Position und Größe sperren'],['hidden','Am Display ausblenden']]) {
+        const input=this.element('input',{type:'checkbox','aria-label':title});input.checked=!!widget[flag];
+        input.onchange=()=>{widget[flag]=input.checked;this.draw();this.schedulePreview();};const label=this.element('label');label.append(input,document.createTextNode(title));settings.append(label);
+      }
       const duplicate=this.element('button',{class:'secondary'},'Duplizieren');
       duplicate.disabled=widget.kind==='media' || this.layout.widgets.length>=10;
       duplicate.onclick=()=>this.duplicateSelected();
@@ -794,7 +798,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const contentStart=settings.childNodes.length;
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip']]) {
         const option=this.element('option',{value},label);
         option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
@@ -822,7 +826,16 @@ export class DeskDisplayPanel extends HTMLElement {
       };
       const kindLabel=this.element('label',{},'Elementtyp');kindLabel.append(kind);widgetPanel.append(kindLabel);
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
-      if(widget.kind==='icon') {
+      if(['progress','gauge','chip'].includes(widget.kind)) {
+        const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.value=widget.entity_id;picker.label='HA-Entität';picker.addEventListener('value-changed',event=>{widget.entity_id=event.detail.value??'';this.schedulePreview();});settings.append(picker);
+        const config=widget.config??={};
+        if(widget.kind==='chip') {
+          for(const [key,label,def] of [['active','Aktiver HA-Zustand','on'],['on_text','Text bei aktiv','Aktiv'],['off_text','Text bei inaktiv','Inaktiv']])this.field(settings,label,config[key]??def,v=>config[key]=v,{maxlength:40});
+        } else {
+          for(const [key,label,def] of [['min','Minimum',0],['max','Maximum',100]])this.field(settings,label,config[key]??def,v=>config[key]=Number(v),{type:'number'});
+          this.field(settings,'Einheit (optional)',config.unit??'',v=>config.unit=v,{maxlength:16});
+        }
+      } else if(widget.kind==='icon') {
         const picker=this.element('ha-icon-picker');picker.hass=this._hass;picker.label='Home-Assistant-Icon';picker.value=widget.icon??'mdi:home';
         picker.addEventListener('value-changed',event=>this.updateIcon(widget,event.detail.value));settings.append(picker);
         settings.append(this.element('small',{},'Icon auswählen; Größe über die Griffe und Farbe unter Aussehen ändern.'));
@@ -990,6 +1003,7 @@ export class DeskDisplayPanel extends HTMLElement {
     }
   }
   resizeWidget(widget,axis,width,height) {
+    if(widget.locked)return;
     if(axis!=='height')widget.width=Math.min(480-widget.x,Math.max(1,Math.round((widget.x+Math.max(8,width))/8)*8-widget.x));
     if(axis!=='width')widget.height=Math.min(320-widget.y,Math.max(1,Math.round((widget.y+Math.max(8,height))/8)*8-widget.y));
   }
@@ -1002,6 +1016,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const position = () => Object.assign(hit.style,{left:`${widget.x/4.8}%`,top:`${widget.y/3.2}%`,width:`${widget.width/4.8}%`,height:`${widget.height/3.2}%`});
       position();
       hit.onkeydown=event=>{
+        if(widget.locked)return;
         const moves={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
         if (!moves[event.key]) return;
         event.preventDefault();
@@ -1014,6 +1029,7 @@ export class DeskDisplayPanel extends HTMLElement {
         this.schedulePreview();
       };
       hit.onpointerdown = event => {
+        if(widget.locked){this.selectWidget(index);return;}
         if(event.ctrlKey||event.metaKey){this.selectWidget(index,true);return;}
         if (index!==this.widgetIndex) {this.selectWidget(index);return;}
         event.preventDefault();hit.setPointerCapture(event.pointerId);
@@ -1032,7 +1048,7 @@ export class DeskDisplayPanel extends HTMLElement {
         const end=()=>{hit.onpointermove=null;hit.onpointerup=null;hit.onpointercancel=null;stage.querySelectorAll('.guide').forEach(line=>line.remove());this.schedulePreview();};
         hit.onpointerup=end;hit.onpointercancel=end;
       };
-      if (index===this.widgetIndex) {
+      if (index===this.widgetIndex && !widget.locked) {
         for(const [axis,label] of [['both','Größe'],['width','Breite'],['height','Höhe']]) {
         const grip=this.element('span',{class:`resize ${axis}`,'aria-label':`${label} von Element ${index+1} ändern`});
         grip.onpointerdown=event => {

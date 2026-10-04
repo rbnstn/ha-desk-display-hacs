@@ -46,7 +46,7 @@ def snapshot_states(hass, layout):
             result['__raw__'][entity]=(raw.state,'') if raw else ('unavailable','')
         if widget["kind"] in ("text", "media", "image", "clock"):
             continue
-        if widget['kind']=='sensor':
+        if widget['kind'] in ('sensor','progress','gauge','chip'):
             for entity in (widget['entity_id'],widget.get('value',{}).get('fallback_entity_id','')):
                 if entity:
                     raw=hass.states.get(entity)

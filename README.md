@@ -343,3 +343,7 @@ Bis zu zehn Elemente je Seite. Bild ersetzt Bild / Logo; neue HA-Icon-Auswahl mi
 ## Version 0.16.1: Rasterkanten für bestehende Layouts
 
 Enthält die Verbesserungen aus 0.15.0 und 0.16.0. Größenänderungen richten die rechte und untere Kante am festen Raster aus, auch bei älteren Elementen außerhalb des Rasters. Neue Elemente starten auch bei voller Seite auf einer Rasterposition.
+
+## Version 0.17.0: Fortschritt, Ring und Status
+
+Fortschrittsbalken und Ringanzeigen mit Minimum, Maximum und Einheit. Status-Chips mit frei konfigurierbaren Zuständen. Elemente im Designer sperren oder am Display ausblenden; ausgeblendete Elemente führen keine Touch-Aktion aus.

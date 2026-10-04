@@ -51,6 +51,7 @@ def matches(condition,states):
 def resolve_layout(layout,states):
     layout=copy.deepcopy(layout);widgets=[]
     for widget in layout['widgets']:
+        if widget.get('hidden'):continue
         if 'visible_when' in widget and not matches(widget['visible_when'],states):continue
         for rule in widget.get('rules',[]):
             if matches(rule['when'],states):
