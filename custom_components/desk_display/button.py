@@ -23,3 +23,4 @@ class RefreshButton(DeskDisplayEntity, ButtonEntity):
         await self.coordinator.async_refresh()
         if not self.coordinator.last_update_success:
             raise HomeAssistantError("Display konnte nicht aktualisiert werden")
+

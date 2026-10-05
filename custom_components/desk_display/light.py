@@ -21,3 +21,4 @@ class Backlight(DeskDisplayEntity,LightEntity):
     async def async_turn_on(self,**kwargs):
         await self.coordinator.async_set_brightness(round(kwargs.get(ATTR_BRIGHTNESS,255)*100/255))
     async def async_turn_off(self,**kwargs):await self.coordinator.async_set_brightness(0)
+

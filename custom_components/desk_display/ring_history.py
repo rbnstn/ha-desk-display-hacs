@@ -77,3 +77,4 @@ def tile(widget,states,theme):
             picture=picture_tile(record['image'],64,42,'contain');image.alpha_composite(picture,(6,y));left=76
         draw.text((left,y+10),record.get('label',record['at'])[:40],font=font,fill=color)
     return image
+

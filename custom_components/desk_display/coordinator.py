@@ -69,6 +69,13 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                          update_interval=timedelta(seconds=10),
                          request_refresh_debouncer=Debouncer(
                              hass, LOGGER, cooldown=1, immediate=True))
+        from .rules import RuleEngine
+        self.rule_engine=RuleEngine()
+        self.page_rule_engine=RuleEngine()
+        self.page_rule_active={}
+        self.last_transfer_ms=None
+        self.last_render_ms=None
+        self.last_transfer_bytes=0
         self.entry = entry
         self.client = client
         self.last_frame = None
@@ -95,7 +102,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.temporary_page=None
         self.detail_widget=None;self.detail_deadline=0
         from .ring_history import RingHistory
-        self.ring_history=RingHistory(hass,getattr(entry,"entry_id",entry.unique_id))
+        self.ring_history=RingHistory(hass,getattr(entry,"entry_id",getattr(entry,"unique_id","")))
 
     @callback
     def async_start(self):
@@ -103,6 +110,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         from .media import MediaWorker
         self.media = MediaWorker(self)
         self.media.start()
+        self._evaluate_page_rules(prime=True)
         self.entry.async_on_unload(self.async_add_listener(self._keep_polling))
         self.entry.async_on_unload(
             self.hass.bus.async_listen(EVENT_STATE_CHANGED, self._state_changed))
@@ -130,6 +138,10 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
     @callback
     def _rotate_page(self,_now=None):
         if self.detail_widget and monotonic()>self.detail_deadline:self.detail_widget=None;self.hass.async_create_task(self.async_refresh())
+        if self.touch_stopped:return
+        self._evaluate_page_rules()
+        if any(value[1] is not None for value in self.rule_engine.memory.values()):
+            self.hass.async_create_task(self.async_request_refresh())
         layout=get_layout(self.entry.options);seconds=layout.get('rotation',0)
         if any(w['kind']=='countdown' for w in current_layout(self).get('widgets',[])) and not self.touch_stopped:self.hass.async_create_task(self.async_request_refresh())
         if self.temporary_page:
@@ -301,12 +313,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             return
         layout=current_layout(self)
         saved=get_layout(self.entry.options)
-        from .rules import matches
-        raw={'__raw__':{entity_id:(after.state if after else 'unavailable','')}}
-        old={'__raw__':{entity_id:(before.state if before else 'unavailable','')}}
-        for rule in saved.get('page_rules',[]):
-            if rule['when']['entity_id']==entity_id and matches(rule['when'],raw) and not matches(rule['when'],old):
-                self.show_page(rule['page'],rule['duration']);self.hass.async_create_task(self.async_refresh());return
+        self._evaluate_page_rules()
         widgets=all_widgets(saved)+layout.get('overlay',{}).get('widgets',[])
         contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
         if not contact_changed and not any(entity_id in entities(widget) or (widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id','')))
@@ -322,6 +329,32 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         ):
             return
         self.hass.async_create_task(self.async_request_refresh())
+
+    def _evaluate_page_rules(self,prime=False):
+        from .rules import condition_key
+        rules=get_layout(self.entry.options).get('page_rules',[])
+        raw={'__raw__':{r['when']['entity_id']:(self.hass.states.get(r['when']['entity_id']).state if self.hass.states.get(r['when']['entity_id']) else 'unavailable','') for r in rules}}
+        keys=set()
+        winner=None
+        for index,rule in enumerate(rules):
+            key=(index,condition_key(rule['when']));keys.add(key)
+            active=self.page_rule_engine.evaluate(rule['when'],raw,prime=prime or key not in self.page_rule_active)
+            before=self.page_rule_active.get(key,active)
+            self.page_rule_active[key]=active
+            if not prime and active and not before and winner is None:winner=rule
+        self.page_rule_active={k:v for k,v in self.page_rule_active.items() if k in keys}
+        allowed={condition_key(r['when']) for r in rules}
+        self.page_rule_engine.memory={k:v for k,v in self.page_rule_engine.memory.items() if k in allowed}
+        if winner and not self.touch_stopped:
+            self.show_page(winner['page'],winner['duration'])
+            self.hass.async_create_task(self.async_refresh())
+
+    def resolve_conditions(self,layout,states):
+        conditions=[]
+        for widget in layout['widgets']+layout.get('overlay',{}).get('widgets',[]):
+            if 'visible_when' in widget:conditions.append(widget['visible_when'])
+            conditions.extend(r['when'] for r in widget.get('rules',[]))
+        return self.rule_engine.snapshot(conditions,states)
 
     async def _async_update_data(self):
         async with self.io_lock:
@@ -364,6 +397,13 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             info = await self.client.info()
             if info["id"] != self.entry.unique_id:
                 raise ValueError("Unter dieser Adresse antwortet ein anderes Display")
+            if info.get('sleep_control'):
+                from .device_settings import validate_settings
+                settings=validate_settings(get_layout(self.entry.options).get('device',{}))
+                sleep=(settings['sleep_after'],settings['sleep_brightness'])
+                if sleep!=getattr(self,'last_sleep_config',None) or info.get('boot_id')!=getattr(self,'last_sleep_boot',None) or self.doorbell_active:
+                    await self.client.configure_sleep(*sleep,wake=self.doorbell_active)
+                    self.last_sleep_config=sleep;self.last_sleep_boot=info.get('boot_id')
             if info.get('brightness_control'):
                 from .device_settings import brightness
                 value=brightness(get_layout(self.entry.options).get('device',{}),dt_util.now(),self.doorbell_active)
@@ -388,12 +428,15 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             from .history import augment_states
             await augment_states(self.hass,layout,states)
             jpeg_video = info.get('jpeg_regions') and video_widget(layout) is not None
+            render_started=monotonic()
             frame = await self.hass.async_add_executor_job(render_frame, layout, states,
                                                          dict(media.frames) if media and not jpeg_video else {})
+            self.last_render_ms=round((monotonic()-render_started)*1000,1)
             # Resend after a reboot even when the layout and states did not change.
             if frame != self.last_frame or layout != self.last_layout or not info.get("has_frame", False):
                 # Video motion leaves the action mapping unchanged.
                 revision = self.revision if layout == self.last_layout and info.get('has_frame') else uuid.uuid4().hex
+                transfer_started=monotonic()
                 if jpeg_video:
                     data = await self.hass.async_add_executor_job(render_jpeg,layout,states,dict(media.frames) if media else {})
                     await self.client.push_jpeg(data,0,0,480,320,revision,True)
@@ -403,6 +446,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                     await self.client.push_regions(updates,revision)
                 else:
                     await self.client.push(frame, revision)
+                self.last_transfer_ms=round((monotonic()-transfer_started)*1000,1)
+                self.last_transfer_bytes=len(data) if jpeg_video else sum(len(u[-1]) for u in updates) if info.get("buffered_regions") else len(frame)
                 self.last_frame = frame
                 self.last_layout = layout
                 self.revision = revision
@@ -412,3 +457,4 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             return info
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise UpdateFailed("Display nicht erreichbar oder Uebertragung fehlgeschlagen") from err
+

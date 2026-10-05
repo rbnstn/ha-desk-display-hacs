@@ -34,3 +34,4 @@ def register_services(hass):
             coordinator.show_page(call.data['page'],call.data['duration']);await coordinator.async_refresh()
     hass.services.async_register(DOMAIN,'notify',notify,schema=vol.Schema({**base,vol.Required('message'):vol.All(str,vol.Length(min=1,max=160)),vol.Optional('duration',default=15):vol.All(int,vol.Range(min=5,max=300)),vol.Optional('priority',default=0):vol.All(int,vol.Range(min=0,max=3))}))
     hass.services.async_register(DOMAIN,'show_page',show_page,schema=vol.Schema({**base,vol.Required('page'):vol.All(int,vol.Range(min=0,max=3)),vol.Optional('duration',default=30):vol.All(int,vol.Range(min=5,max=300))}))
+

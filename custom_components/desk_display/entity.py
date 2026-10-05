@@ -15,3 +15,4 @@ class DeskDisplayEntity(CoordinatorEntity):
             name=coordinator.entry.title, manufacturer="LCDWIKI",
             model="E32R35T", sw_version=(coordinator.data or {}).get("version", "unbekannt"),
         )
+

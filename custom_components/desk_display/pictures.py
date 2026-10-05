@@ -36,3 +36,4 @@ def picture_tile(source, width, height, fit):
         tile = Image.new('RGBA', (width,height))
         tile.paste(picture, ((width-picture.width)//2,(height-picture.height)//2))
         return tile
+

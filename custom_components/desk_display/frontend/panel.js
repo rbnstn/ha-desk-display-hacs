@@ -9,6 +9,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.previewSequence = 0;
     this.inspectorTab = 'element';
     this.groupsOpen = {};
+    try { this.advanced=localStorage.getItem('desk-display-advanced')==='true'; } catch { this.advanced=false; }
+    this.visibilityHandler=()=>{if(!document.hidden && this.isConnected){this.preview(true);this.diagnosticsAt=0;}};
     this.loadDoorbell();
   }
   set hass(value) {
@@ -25,10 +27,13 @@ export class DeskDisplayPanel extends HTMLElement {
         })) this.schedulePreview(true);
   }
   connectedCallback() {
+    document.addEventListener('visibilitychange',this.visibilityHandler);
     if (this._hass && !this.loaded) this.load();
     if (this.loaded) this.startVideoPreview();
   }
   disconnectedCallback() {
+    document.removeEventListener('visibilitychange',this.visibilityHandler);
+    this.previewAgain=false;
     this.previewResize?.disconnect();
     clearInterval(this.videoPreviewTimer);
     this.videoPreviewTimer = null;
@@ -109,9 +114,11 @@ export class DeskDisplayPanel extends HTMLElement {
       if(!w.hidden)for(const other of page.widgets.slice(index+1))if(!other.hidden && Math.min(w.x+w.width,other.x+other.width)>Math.max(w.x,other.x) && Math.min(w.y+w.height,other.y+other.height)>Math.max(w.y,other.y)) {add('Überlappt mit einem weiteren Element. Falls beabsichtigt, ist das in Ordnung.');break;}
     }));return issues;
   }
-  showLayoutIssues() {
+  async showLayoutIssues() {
     const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Layout prüfen'});dialog.append(this.element('h2',{},'Layout prüfen'));
-    const issues=this.inspectLayout();if(!issues.length)dialog.append(this.element('p',{},'Keine Probleme gefunden.'));
+    let issues=this.inspectLayout();
+    try{const measured=await this._hass.callWS({type:'desk_display/inspect',layout:this.documentLayout()});issues=issues.filter(i=>!i.text.includes('Beschriftung könnte'));issues.push(...measured.issues);}catch(error){issues.push({page:0,index:0,text:'Schriftmessung derzeit nicht verfügbar.'});}
+    if(!issues.length)dialog.append(this.element('p',{},'Keine Probleme gefunden.'));
     for(const issue of issues){const button=this.element('button',{class:'secondary'},`Seite ${issue.page+1}, Element ${issue.index+1}: ${issue.text}`);button.onclick=()=>{dialog.close();dialog.remove();this.selectPage(issue.page);this.openElementSettings(issue.index);};dialog.append(button);}
     const close=this.element('button',{},'Schließen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);this.shadowRoot.append(dialog);dialog.showModal();
   }
@@ -143,11 +150,15 @@ export class DeskDisplayPanel extends HTMLElement {
   startVideoPreview() {
     if (this.videoPreviewTimer) return;
     this.videoPreviewTimer = setInterval(() => {
-      if (this.isConnected && (this.overlayPreview || this.layout?.widgets.some(w => ['media','clock','countdown'].includes(w.kind))) && !this.previewTimer) this.preview(true);
-      if (this.isConnected) this.refreshDoorbellStatus();
-      if(this.isConnected)this.refreshDiagnostics();
+      if (!this.isConnected || document.hidden) return;
+      const kinds=this.layout?.widgets.map(w=>w.kind)??[];
+      const interval=this.overlayPreview || kinds.includes('media') || kinds.includes('countdown')?1000:kinds.includes('clock')?10000:0;
+      if(interval && Date.now()-(this.lastPreviewAt??0)>=interval && !this.previewTimer)this.preview(true);
+      if(Date.now()-(this.doorbellStatusAt??0)>=5000){this.doorbellStatusAt=Date.now();this.refreshDoorbellStatus();}
+      this.refreshDiagnostics();
     }, 1000);
   }
+
   async refreshDoorbellStatus() {
     const target=this.shadowRoot.querySelector('#doorbell-ready');
     const device=this.devices[this.selected];
@@ -178,20 +189,82 @@ export class DeskDisplayPanel extends HTMLElement {
     try {
       const result=await this._hass.callWS({type:'desk_display/diagnostics',entry_id:device.id});
       Object.assign(device,result);
+      const diagnostics=this.shadowRoot.querySelector('#diagnostic-details');if(diagnostics)diagnostics.textContent=`WLAN ${result.rssi??'?'} dBm · Speicher ${result.free_heap??'?'} Bytes · Laufzeit ${result.uptime??'?'} s · Neustartgrund ${result.reset_reason??'?'} · Bildaufbau ${result.render_ms??'?'} ms · Übertragung ${result.transfer_ms??'?'} ms / ${result.transfer_bytes??'?'} Bytes · Kameraalter ${result.camera_age??'?'} s`;
       if(device!==this.devices[this.selected])return;
       const target=this.shadowRoot.querySelector('#device-status');
       if(target)target.textContent=`${result.connected?'Verbunden':'Offline'} · Firmware ${result.firmware??'unbekannt'} · letzte Datenbestätigung ${result.age??'?'} s her`;
     }catch(error){const target=this.shadowRoot.querySelector('#device-status');if(target)target.textContent='Verbindungsstatus derzeit nicht verfügbar.';}
     finally{this.diagnosticsBusy=false;}
   }
+  supports(minimum) {
+    const version=this.devices[this.selected]?.firmware??'';
+    const parts=version.split('.').map(Number),required=minimum.split('.').map(Number);
+    if(parts.length!==3 || parts.some(v=>!Number.isFinite(v)))return false;
+    for(let i=0;i<3;i++){if(parts[i]!==required[i])return parts[i]>required[i];}return true;
+  }
+  applyCapabilityHints() {
+    const requirements=[['Wischen auf freier Fläche','0.8.0'],['Bei Inaktivität','0.9.0'],['Helligkeit bei Inaktivität','0.9.0'],['Nachtmodus','0.6.0'],['Helligkeit (%)','0.6.0'],['Nachthelligkeit','0.6.0'],['Helligkeit beim Klingeln','0.6.0'],['Lange drücken','0.7.0']];
+    for(const picker of this.shadowRoot.querySelectorAll('ha-entity-picker')){if(picker.label?.includes('langem Drücken') && !this.supports('0.7.0')){picker.disabled=true;picker.title='Benötigt Firmware 0.7.0';}}
+    for(const label of this.shadowRoot.querySelectorAll('label')) {
+      const requirement=requirements.find(([text])=>label.textContent.includes(text));
+      if(requirement && !this.supports(requirement[1])){for(const input of label.querySelectorAll('input,select'))input.disabled=true;label.title=`Benötigt Firmware ${requirement[1]}`;}
+    }
+  }
+  async fitText() {
+    const result=await this._hass.callWS({type:'desk_display/inspect',layout:this.documentLayout()});
+    const item=result.sizes.find(i=>i.page===(this.pageIndex??0) && i.index===this.widgetIndex);
+    if(!item){this.status('Für dieses Element ist keine automatische Schriftanpassung verfügbar.');return;}
+    const widget=this.layout.widgets[this.widgetIndex];widget.size=item.size;
+    if(this.documentLayout().design?.size!==undefined)widget.inherit_design=false;
+    this.draw();this.schedulePreview();
+  }
+  chooseTemplate(type) {
+    const definitions={energy:[['solar','PV Leistung',['sensor']],['house','Hausverbrauch',['sensor']],['grid','Netzleistung',['sensor']],['battery','Batterieleistung',['sensor']]],status:[['one','Erster Schalter',['switch','input_boolean']],['two','Zweiter Schalter (optional)',['switch','input_boolean']],['three','Dritter Schalter (optional)',['switch','input_boolean']]],camera:[['source','Kamera',['camera']]]};
+    const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Vorlage einrichten'}),values={};
+    dialog.append(this.element('h2',{},'Entitäten für die Vorlage auswählen'));
+    for(const [key,label,domains] of definitions[type]) {
+      const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.includeDomains=domains;
+      const candidates=Object.entries(this._hass.states).filter(([id,state])=>domains.includes(id.split('.')[0]) && (type!=='energy' || ['W','kW'].includes(state.attributes.unit_of_measurement)));
+      const hints={solar:/pv|solar|photovoltaik/i,house:/hausverbrauch|house.*consum|load.*power/i,grid:/netz|grid/i,battery:/batter|akku/i};
+      const match=type==='energy'?candidates.find(([id,state])=>hints[key].test(id+' '+(state.attributes.friendly_name??''))):candidates.length===1?candidates[0]:null;
+      if(match){values[key]=match[0];picker.value=match[0];}
+      picker.addEventListener('value-changed',event=>values[key]=event.detail.value??'');dialog.append(picker);
+    }
+    const error=this.element('p',{role:'status'});dialog.append(error);
+    const add=this.element('button',{},'Vorlage hinzufügen');
+    add.onclick=()=>{
+      const required=type==='energy'?definitions[type].map(d=>d[0]):[definitions[type][0][0]];
+      if(required.some(k=>!values[k])){error.textContent='Bitte die benötigten Entitäten auswählen.';return;}
+      const widgets=[];const color=this.layout.theme==='material_light'?'#1d1b20':'#e6e0e9';
+      const make=(kind,text,entity,x,y,width,height)=>({kind,text,entity_id:entity,x,y,width,height,size:24,color});
+      if(type==='energy')widgets.push({...make('energy','Energiefluss','',16,16,448,240),config:{...values}});
+      if(type==='camera')widgets.push({...make('media','Kamera','',16,16,this.devices[this.selected].jpeg_regions?448:160,this.devices[this.selected].jpeg_regions?240:120),source:values.source,fps:1});
+      if(type==='status')Object.values(values).filter(Boolean).forEach((entity,i)=>widgets.push(make('switch',this._hass.states[entity]?.attributes.friendly_name?.slice(0,80)??entity,entity,16,16+i*68,448,60)));
+      if(this.layout.widgets.length+widgets.length>10 || (type==='camera' && this.layout.widgets.some(w=>w.kind==='media'))){error.textContent='Die Vorlage passt nicht auf diese Seite.';return;}
+      const group='template'+Date.now().toString(36),index=this.layout.widgets.length;widgets.forEach(w=>w.group=group);this.layout.widgets.push(...widgets);this.widgetIndex=index;this.selection=new Set(widgets.map((_,i)=>index+i));dialog.close();dialog.remove();this.draw();this.schedulePreview();
+    };
+    const cancel=this.element('button',{class:'secondary'},'Abbrechen');cancel.onclick=()=>{dialog.close();dialog.remove();};dialog.append(add,cancel);this.shadowRoot.append(dialog);dialog.showModal();
+  }
   async updateFirmware(file) {
     if(this.updatingFirmware)return;
     if(!file || !file.name.endsWith('.bin') || file.size>1310720){this.status('Passende firmware.bin bis 1,25 MiB auswählen.');return;}
+    const deviceId=this.devices[this.selected].id;
     this.updatingFirmware=true;this.status('Firmware wird übertragen. Gerät nicht ausschalten …');
     try {
-      const response=await this._hass.fetchWithAuth(`/api/desk_display/${encodeURIComponent(this.devices[this.selected].id)}/firmware`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
+      const response=await this._hass.fetchWithAuth(`/api/desk_display/${encodeURIComponent(deviceId)}/firmware`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
       const result=await response.json();if(!response.ok)throw new Error(result.message??'Update fehlgeschlagen');
       this.status(result.message);this.diagnosticsAt=0;
+      const deadline=Date.now()+95000;
+      while(this.isConnected && Date.now()<deadline){
+        await new Promise(resolve=>setTimeout(resolve,2000));
+        const diagnostics=await this._hass.callWS({type:'desk_display/diagnostics',entry_id:deviceId});
+        const update=diagnostics.update;
+        if(update?.phase==='verified'){this.status(`Update abgeschlossen. Firmware ${update.installed} nach Neustart geprüft.`);await this.load();break;}
+        if(update?.phase==='connected_unverified'){this.status(`Display wieder verbunden, Firmware ${update.installed}. Die Datei enthält keine prüfbare Versionskennung.`);break;}
+        if(update?.phase==='failed')throw new Error(update.message);
+        this.status('Display startet neu. Verbindung und Firmware werden geprüft …');
+      }
+      if(Date.now()>=deadline)throw new Error('Neustart noch nicht bestätigt. Verbindungsstatus prüfen.');
     }catch(error){this.status('Firmware: '+(error.message??error));}
     finally{this.updatingFirmware=false;}
   }
@@ -338,6 +411,7 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   wrapFields(parent,start,key,title,open=false) {
     const group=this.element('details',{class:'editor-group'});
+    group.hidden=!this.advanced && ['globaldesign','simulation','values','rules','arrange'].includes(key);
     group.open=this.groupsOpen[key] ?? open;
     group.append(this.element('summary',{},title));
     const body=this.element('div',{class:'group-body'});
@@ -434,7 +508,11 @@ export class DeskDisplayPanel extends HTMLElement {
     const valueBox=this.element('div');parent.append(valueBox);
     this.field(valueBox,'Vergleich mit',condition.value,value=>{condition.value=value;update();});
     valueBox.hidden=condition.op==='missing';
-    select.value=condition.op;select.onchange=()=>{condition.op=select.value;valueBox.hidden=condition.op==='missing';update();};
+    const hysteresis=this.element('div');parent.append(hysteresis);
+    this.field(hysteresis,'Hysterese (Abstand zum Rückschalten)',condition.hysteresis??0,value=>{condition.hysteresis=Number(value);update();},{type:'number',min:0,max:1000000000,step:'any'});
+    hysteresis.hidden=!['gt','gte','lt','lte'].includes(condition.op);
+    this.field(parent,'Zustand muss so lange bestehen (Sekunden)',condition.delay??0,value=>{condition.delay=Number(value);update();},{type:'number',min:0,max:300});
+    select.value=condition.op;select.onchange=()=>{condition.op=select.value;valueBox.hidden=condition.op==='missing';hysteresis.hidden=!['gt','gte','lt','lte'].includes(condition.op);if(hysteresis.hidden)delete condition.hysteresis;update();};
   }
   editDoorbellLayout() {
     const base={background:this.layout.theme==='material_light'?'#fef7ff':'#141218',theme:this.layout.theme??'material_dark',widgets:[
@@ -513,6 +591,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const states=this._hass?.states??{};
     const make=(kind,text,entity,x,y,width,height,size=24)=>({kind,text,entity_id:entity,x,y,width,height,size,color:this.layout.theme==='material_light'?'#1d1b20':'#e6e0e9'});
     const sensors=Object.keys(states).filter(e=>e.startsWith('sensor.')).sort();let widgets=[];
+    if(type==='energy' || type==='status' || type==='camera')return this.chooseTemplate(type);
     if(type==='energy')widgets=sensors.slice(0,3).map((e,i)=>make('sensor',states[e].attributes.friendly_name?.slice(0,80)??e,e,16,16+i*68,448,60));
     if(type==='clock')widgets=[{...make('clock','Uhrzeit','',16,16,448,72,48),clock_format:'time'},{...make('clock','Datum','',16,92,448,40,20),clock_format:'date'}];
     if(type==='status')widgets=Object.keys(states).filter(e=>e.startsWith('switch.')||e.startsWith('input_boolean.')).sort().slice(0,3).map((e,i)=>make('switch',states[e].attributes.friendly_name?.slice(0,80)??e,e,16,16+i*68,448,60));
@@ -647,11 +726,7 @@ export class DeskDisplayPanel extends HTMLElement {
       this.devices[deviceIndex].doorbell = savedDoorbell;
       this.devices[deviceIndex].backups=result.backups??this.devices[deviceIndex].backups;
       if (deviceIndex===this.selected) this.savedSnapshot=this.editState(savedLayout,savedDoorbell);
-      const resultPreview = await this._hass.callWS({type:'desk_display/preview',entry_id:this.devices[deviceIndex]?.id,layout:savedLayout,doorbell:savedDoorbell,overlay:this.overlayPreview,page:savedPage,simulation:savedSimulation});
-      if (deviceIndex===this.selected && savedPage===(this.pageIndex??0) && JSON.stringify(savedSimulation)===JSON.stringify(this.simulation) && this.editState()===this.editState(savedLayout,savedDoorbell)) {
-        this.previewImage = `data:image/png;base64,${resultPreview.png}`;
-        this.shadowRoot.querySelector('.stage img').src = this.previewImage;
-      }
+      if(deviceIndex===this.selected && savedPage===(this.pageIndex??0) && JSON.stringify(savedSimulation)===JSON.stringify(this.simulation) && this.editState()===this.editState(savedLayout,savedDoorbell))await this.preview(true);
       if (deviceIndex===this.selected) this.status(result.sent ? 'Gespeichert und vom Display bestätigt.' : 'Gespeichert. Display offline oder Übertragung fehlgeschlagen; HA versucht es erneut.');
     } catch (error) { if (deviceIndex===this.selected) this.status(`Fehler: ${error.message ?? error}`); }
     finally { this.saving=false;this.persistDraft();this.updateSaveState(); }
@@ -735,10 +810,13 @@ export class DeskDisplayPanel extends HTMLElement {
     });
     deviceSelect.value = this.selected;
     deviceSelect.onchange = () => {
-      this.selected = Number(deviceSelect.value); this.widgetIndex = 0;
+      this.persistDraft();++this.previewSequence;this.pageIndex=0;this.rootLayout=null;this.undoStack=[];this.redoStack=[];
+      this.selected = Number(deviceSelect.value); this.widgetIndex = 0;this.diagnosticsAt=0;
       this.layout = structuredClone(this.devices[this.selected].layout); this.loadDoorbell(); this.draw(); this.preview();
     };
     header.append(deviceSelect);
+    const advanced=this.element('button',{class:'secondary','aria-pressed':String(this.advanced)},this.advanced?'Erweiterte Ansicht':'Einfache Ansicht');
+    advanced.onclick=()=>{this.advanced=!this.advanced;try{localStorage.setItem('desk-display-advanced',String(this.advanced));}catch{}this.draw();};header.append(advanced);
     header.append(this.element('small',{id:'device-status',role:'status'},`${this.devices[this.selected].connected?'Verbunden':'Offline'} · Firmware ${this.devices[this.selected].firmware??'unbekannt'}`));
     if(this.recoveryDraft){const banner=this.element('div',{class:'toolbar'});banner.append(this.element('small',{},this.recoveryDraft.base!==this.savedSnapshot?'Lokaler Entwurf gefunden; das gespeicherte Design hat sich inzwischen geändert.':'Ungespeicherter lokaler Entwurf gefunden.'));const restore=this.element('button',{},'Entwurf wiederherstellen');restore.onclick=()=>{const draft=this.recoveryDraft;this.recoveryDraft=null;this.restoreDraft(draft);};const discard=this.element('button',{class:'secondary'},'Entwurf verwerfen');discard.onclick=()=>{localStorage.removeItem(this.draftKey());this.recoveryDraft=null;this.draw();};banner.append(restore,discard);header.append(banner);}
     const bellSection=this.element('div',{'data-pane':'doorbell',role:'tabpanel'});
@@ -804,7 +882,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const managePages=this.element('button',{class:'secondary'},'Seiten verwalten');managePages.onclick=()=>this.switchInspectorTab('pages',true);pageStrip.append(managePages);canvasSection.append(pageStrip);
     if(this.isOverlayDesigner)pageStrip.hidden=true;
     const well=this.element('div',{class:'preview-well'});
-    const stage = this.element('div', {class: 'stage', 'aria-label': 'Displayvorschau'});
+    const stage = this.element('div', {class: 'stage', tabindex: '0', 'aria-label': 'Displayvorschau'});
     stage.dataset.snap='true';
     const image = this.element('img', {alt: 'Vorschau der Anzeige'});
     if (this.previewImage) image.src = this.previewImage;
@@ -885,7 +963,11 @@ export class DeskDisplayPanel extends HTMLElement {
     for(const [key,label] of [['night_start','Nacht ab'],['night_end','Nacht bis']])this.field(displayPanel,label,deviceSettings[key],value=>setDevice(key,value),{type:'time'});
     for(const [key,label] of [['night_brightness','Nachthelligkeit (%)'],['ring_brightness','Helligkeit beim Klingeln (%)']])this.field(displayPanel,label,deviceSettings[key],value=>setDevice(key,Number(value)),{type:'number',min:0,max:100});
     displayPanel.append(this.element('small',{},'Helligkeit und Nachtmodus benötigen Firmware 0.6.0. Eine HA-Lichtentität erlaubt Automationen; manuelles Schalten über HA beendet den Zeitplan. Beim Klingeln gilt die Klingelhelligkeit, danach wieder der Zeitplan.'));
-    this.wrapFields(displayPanel,deviceStart,'device','Helligkeit & Nachtmodus');
+    this.field(displayPanel,'Bei Inaktivität dimmen nach (0 = aus, Sekunden)',deviceSettings.sleep_after??0,value=>setDevice('sleep_after',Number(value)),{type:'number',min:0,max:3600,step:15});
+    this.field(displayPanel,'Helligkeit bei Inaktivität (%)',deviceSettings.sleep_brightness??0,value=>setDevice('sleep_brightness',Number(value)),{type:'number',min:0,max:100});
+    displayPanel.append(this.element('small',{},'Ab Firmware 0.9.0. Die erste Berührung weckt nur auf. Klingeln weckt sofort auf.'));
+    this.wrapFields(displayPanel,deviceStart,'device','Helligkeit, Nachtmodus & Ruhemodus');
+    displayPanel.append(this.element('small',{id:'diagnostic-details',role:'status'},'Diagnose wird geladen …'));
     const firmwareStart=displayPanel.childNodes.length;
     displayPanel.append(this.element('small',{},`Installierte Firmware: ${this.devices[this.selected].firmware??'unbekannt'}`));
     const firmwareFile=this.element('input',{type:'file',accept:'.bin','aria-label':'Firmware-Datei'});displayPanel.append(firmwareFile);
@@ -913,10 +995,10 @@ export class DeskDisplayPanel extends HTMLElement {
     const pageRule=this.element('button',{class:'secondary'},'Seitenregel hinzufügen');pageRule.disabled=rules.length>=8;
     pageRule.onclick=()=>{(this.documentLayout().page_rules??=[]).push({when:{entity_id:'',op:'eq',value:'on'},page:0,duration:30});this.draw();};pagesPanel.append(pageRule,this.element('small',{},'Regel löst beim Wechsel von nicht erfüllt zu erfüllt aus. Danach erscheint wieder die vorherige Seite. HA-Automationen können auch die Aktionen Desk Display: Meldung anzeigen und Seite anzeigen verwenden.'));
     const templatesStart=displayPanel.childNodes.length;
-    for(const [type,label] of [['energy','Drei HA-Werte'],['status','Schalterübersicht'],['clock','Uhrzeit mit Datum'],['camera','Kameraansicht']]){
+    for(const [type,label] of [['energy','Energieübersicht'],['status','Schalterübersicht'],['clock','Uhrzeit mit Datum'],['camera','Kameraansicht']]){
       const button=this.element('button',{class:'secondary'},label);button.onclick=()=>this.addTemplate(type);displayPanel.append(button);
     }
-    displayPanel.append(this.element('small',{},'Vorlagen ergänzen die Seite und verwenden vorhandene HA-Entitäten. Entitäten anschließend anpassen. Eigene Komponenten unter Sicherungen & Dateien wiederverwenden.'));
+    displayPanel.append(this.element('small',{},'Vorlagen ergänzen die Seite. Energie, Schalter und Kamera werden zuerst gezielt zugeordnet. Eigene Komponenten unter Sicherungen & Dateien wiederverwenden.'));
     this.wrapFields(displayPanel,templatesStart,'templates','Vorlagen');
     const filesStart=displayPanel.childNodes.length;
     const exportButton=this.element('button',{class:'secondary'},'Layout exportieren');exportButton.onclick=()=>this.exportDesign();displayPanel.append(exportButton);
@@ -1177,6 +1259,7 @@ export class DeskDisplayPanel extends HTMLElement {
         align.onchange=()=>{style.align=align.value;this.schedulePreview();};
         if (!['media','image','sensor','icon','line'].includes(widget.kind)) settings.append(align);
       }
+      const fit=this.element('button',{class:'secondary'},'Schrift passend verkleinern');fit.onclick=()=>this.fitText();settings.append(fit);
       this.wrapFields(settings,appearanceStart,'appearance','Aussehen');
     }
     widgetPanel.append(...Array.from(settings.childNodes).filter(node=>node!==displayPanel));
@@ -1196,6 +1279,7 @@ export class DeskDisplayPanel extends HTMLElement {
     columns.append(canvasSection,inspector);main.append(columns);this.refreshHits();
     this.switchInspectorTab(this.inspectorTab);
     this.updateSaveState();
+    this.applyCapabilityHints();
     if (typeof ResizeObserver!=='undefined') {
       this.previewResize=new ResizeObserver(entries=>{
         const {width,height}=entries[0].contentRect;
@@ -1294,7 +1378,7 @@ export class DeskDisplayPanel extends HTMLElement {
     this.refreshGroupBounds(stage);
   }
   schedulePreview(quiet = false) {
-    if(!quiet)this.recordEdit();
+    if(!quiet){++this.previewSequence;this.recordEdit();}
     this.updateSaveState();
     // State changes must not postpone a pending user edit or overwrite save feedback.
     if (quiet && this.previewTimer) return;
@@ -1303,9 +1387,13 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   async preview(quiet = false) {
     const sequence=++this.previewSequence;
+    if(typeof document!=='undefined' && document.hidden)return;
+    if(this.previewBusy){this.previewAgain=true;this.previewAgainQuiet=quiet;return;}
+    this.previewBusy=true;this.lastPreviewAt=Date.now();
+    const signature=JSON.stringify([this.editState(),this.pageIndex,this.overlayPreview,this.simulation,this.devices[this.selected]?.id]);
     try {
       const result=await this._hass.callWS({type:'desk_display/preview',entry_id:this.devices[this.selected]?.id,layout:this.documentLayout(),doorbell:this.doorbell,overlay:this.overlayPreview,simulation:this.simulation,page:this.pageIndex??0});
-      if(sequence!==this.previewSequence)return;
+      if(sequence!==this.previewSequence || signature!==JSON.stringify([this.editState(),this.pageIndex,this.overlayPreview,this.simulation,this.devices[this.selected]?.id]))return;
       this.previewImage=`data:image/png;base64,${result.png}`;
       this.shadowRoot.querySelector('.stage img').src=this.previewImage;
       const mediaStatus = this.shadowRoot.querySelector('#media-status');
@@ -1316,6 +1404,11 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       if (!quiet) this.status(this.editState()!==this.savedSnapshot?'Vorschau aktualisiert. Zum Übertragen speichern.':'Vorschau aktualisiert.');
     } catch(error) {if(sequence===this.previewSequence && !quiet)this.status(`Vorschau: ${error.message ?? error}`);}
+    finally {
+      this.previewBusy=false;
+      if(this.previewAgain && this.isConnected){const nextQuiet=this.previewAgainQuiet;this.previewAgain=false;this.preview(nextQuiet);}
+    }
   }
 }
 if (!customElements.get('desk-display-panel')) customElements.define('desk-display-panel',DeskDisplayPanel);
+

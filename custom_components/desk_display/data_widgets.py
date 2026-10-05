@@ -100,7 +100,7 @@ def tile(widget,states,theme):
         weather_icon(draw,condition,8,26,color)
         draw.text((56,24),'—' if temperature is None else f'{temperature:g} {attrs.get("temperature_unit","°C")}',font=font,fill=color)
         draw.text((56,54),CONDITIONS.get(condition,'Nicht verfügbar'),font=small,fill=color)
-        forecast=states.get('__forecast__',{}).get(entity,[])
+        forecast=states.get('__forecast__',{}).get((entity,widget.get('config',{}).get('forecast','daily')),states.get('__forecast__',{}).get(entity,[]))
         if widget.get('config',{}).get('forecast','daily')!='none':
             for i,item in enumerate(forecast[:3]):
                 x=8+i*max(1,(w-16)//3);value=number(item.get('temperature'));when=str(item.get('datetime',''))
@@ -108,3 +108,4 @@ def tile(widget,states,theme):
                 draw.text((x,82),label,font=small,fill=color);draw.text((x,99),'—' if value is None else f'{value:g}°',font=small,fill=color)
             if not forecast:draw.text((8,82),'Keine Vorhersage verfügbar',font=small,fill=color)
     return image
+

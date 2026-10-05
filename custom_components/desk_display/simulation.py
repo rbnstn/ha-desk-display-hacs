@@ -20,3 +20,4 @@ def apply_simulation(states,layout,simulation):
             button=next((w for w in widgets if w['kind']=='button'),None)
             if button:button['text']=labels[door]
     return bool(overrides or door)
+

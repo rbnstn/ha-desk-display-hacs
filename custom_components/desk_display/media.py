@@ -265,3 +265,4 @@ class MediaWorker:
             if self.visible(signature):
                 await self.coordinator.async_refresh()
             await asyncio.sleep(10)
+

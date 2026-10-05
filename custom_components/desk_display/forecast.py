@@ -18,4 +18,6 @@ async def augment_forecasts(hass,layout,states):
             except (Exception,):pass
             entry=(monotonic(),items);cache[key]=entry
             if len(cache)>40:cache.pop(next(iter(cache)))
-        states['__forecast__'][entity]=entry[1]
+        states['__forecast__'][key]=entry[1]
+        states['__forecast__'].setdefault(entity,entry[1])
+

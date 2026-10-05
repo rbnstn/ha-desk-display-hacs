@@ -113,3 +113,4 @@ def render_jpeg(layout, states, media, box=None):
         if len(result) <= 65536:
             return result
     raise ValueError('JPEG exceeds display buffer')
+

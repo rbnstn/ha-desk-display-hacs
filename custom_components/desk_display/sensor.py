@@ -17,3 +17,4 @@ class ConfirmedAt(DeskDisplayEntity,SensorEntity):
     def available(self):return True
     @property
     def native_value(self):return getattr(self.coordinator,'last_confirmed_time',None)
+

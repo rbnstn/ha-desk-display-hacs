@@ -37,3 +37,4 @@ def sensor_value(widget, states):
             value = f'{0 if number == 0 else number:g}'
         unit = options.get('unit', unit)
     return f'{value} {unit}'.strip()[:120]
+
