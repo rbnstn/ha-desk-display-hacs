@@ -30,11 +30,16 @@ def sensor_value(widget, states):
         number *= factor
         if not math.isfinite(number):
             return 'Nicht verfuegbar'
-        if 'decimals' in options:
+        unit = options.get('unit', unit)
+        if options.get('auto_power') and unit in ('W','kW'):
+            watts = number * (1000 if unit == 'kW' else 1)
+            number, unit = (watts / 1000, 'kW') if abs(watts) >= 1000 else (watts, 'W')
+            value = f'{0 if number == 0 else number:.{options.get("decimals",2) if unit == "kW" else 0}f}'
+        elif 'decimals' in options:
             number = round(number, options['decimals'])
             value = f"{0 if number == 0 else number:.{options['decimals']}f}"
         elif factor != 1:
             value = f'{0 if number == 0 else number:g}'
-        unit = options.get('unit', unit)
+        if options.get('decimal_separator') == ',':
+            value = str(value).replace('.', ',')
     return f'{value} {unit}'.strip()[:120]
-

@@ -53,7 +53,7 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen", "swipe", "navigation"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen", "swipe", "navigation", "notification_rules"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -90,6 +90,11 @@ def validate_layout(layout, nested=False):
         validate_page_rules(layout["page_rules"])
         if any(rule["page"]>len(result.get("pages",[])) for rule in layout["page_rules"]):raise ValueError("Zielseite existiert nicht")
         result["page_rules"]=copy.deepcopy(layout["page_rules"])
+    if 'notification_rules' in layout:
+        from .automation import validate_notification_rules
+        if nested:raise ValueError('Hinweisregeln nur auf der Hauptseite')
+        validate_notification_rules(layout['notification_rules'])
+        result['notification_rules']=copy.deepcopy(layout['notification_rules'])
     if 'design' in layout:
         design=layout['design']
         if not isinstance(design,dict) or set(design)-{'color','size','background','radius','surface'}:raise ValueError('Ungueltiges globales Design')
@@ -150,13 +155,15 @@ def validate_layout(layout, nested=False):
             raise ValueError('Ungueltige Elementgruppe')
         if 'value' in widget:
             value = widget['value']
-            if widget['kind'] != 'sensor' or not isinstance(value, dict) or not set(value) <= {'factor','unit','invert','decimals','fallback_entity_id','fallback_mode'}:
+            if widget['kind'] != 'sensor' or not isinstance(value, dict) or not set(value) <= {'factor','unit','invert','decimals','fallback_entity_id','fallback_mode','auto_power','decimal_separator'}:
                 raise ValueError('Ungueltige Werteinstellungen')
             factor = value.get('factor', 1)
             if type(factor) not in (int,float) or abs(factor)>1e9 or not math.isfinite(factor):
                 raise ValueError('Ungueltiger Umrechnungsfaktor')
             if type(value.get('invert',False)) is not bool:
                 raise ValueError('Ungueltiger Vorzeichenwechsel')
+            if type(value.get('auto_power',False)) is not bool or value.get('decimal_separator','.') not in ('.',','):
+                raise ValueError('Ungültiges Zahlenformat')
             if 'decimals' in value and (type(value['decimals']) is not int or not 0<=value['decimals']<=6):
                 raise ValueError('Nachkommastellen: 0 bis 6')
             unit = value.get('unit','')
@@ -193,8 +200,10 @@ def validate_layout(layout, nested=False):
         else:normalized.pop('line_width',None)
         if "style" in widget:
             style = widget["style"]
-            if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align"}:
+            if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align", "auto_fit"}:
                 raise ValueError("Ungueltiger Elementstil")
+            if type(style.get('auto_fit',False)) is not bool:
+                raise ValueError('Ungültige automatische Schriftanpassung')
             if "surface" in style and type(style["surface"]) is not bool:
                 raise ValueError("Kartenflaeche muss ein- oder ausgeschaltet sein")
             if "radius" in style and (type(style["radius"]) is not int or not 0 <= style["radius"] <= 32):
@@ -232,4 +241,3 @@ def validate_layout(layout, nested=False):
 
 def get_layout(options):
     return validate_layout(copy.deepcopy(options.get("layout", DEFAULT_LAYOUT)))
-

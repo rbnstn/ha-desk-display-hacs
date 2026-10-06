@@ -43,7 +43,7 @@ def snapshot_states(hass, layout):
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
         for entity in entities(widget):
             raw=hass.states.get(entity)
-            result['__raw__'][entity]=(raw.state,'') if raw else ('unavailable','')
+            result['__raw__'][entity]=(raw.state,raw.attributes.get('unit_of_measurement','')) if raw else ('unavailable','')
         if widget["kind"] in ("text", "media", "image", "clock"):
             continue
         if widget['kind'] in ('sensor','progress','gauge','chip','chart','cost','weather','countdown'):
@@ -99,6 +99,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.action_feedback={}
         self.confirm_action=None
         self.notifications=[]
+        from .automation import NotificationRules
+        self.notification_rules=NotificationRules()
         self.temporary_page=None
         self.detail_widget=None;self.detail_deadline=0
         from .ring_history import RingHistory
@@ -140,6 +142,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         if self.detail_widget and monotonic()>self.detail_deadline:self.detail_widget=None;self.hass.async_create_task(self.async_refresh())
         if self.touch_stopped:return
         self._evaluate_page_rules()
+        self._evaluate_notifications()
         if any(value[1] is not None for value in self.rule_engine.memory.values()):
             self.hass.async_create_task(self.async_request_refresh())
         layout=get_layout(self.entry.options);seconds=layout.get('rotation',0)
@@ -314,6 +317,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         layout=current_layout(self)
         saved=get_layout(self.entry.options)
         self._evaluate_page_rules()
+        self._evaluate_notifications()
         widgets=all_widgets(saved)+layout.get('overlay',{}).get('widgets',[])
         contact_changed=self.doorbell_active and entity_id==get_doorbell(self.entry.options)['door_state_entity_id']
         if not contact_changed and not any(entity_id in entities(widget) or (widget["kind"] not in ("text", "media", "image", "clock") and entity_id in (widget["entity_id"], widget.get('value',{}).get('fallback_entity_id','')))
@@ -329,6 +333,16 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         ):
             return
         self.hass.async_create_task(self.async_request_refresh())
+
+    def _evaluate_notifications(self):
+        rules=get_layout(self.entry.options).get('notification_rules',[])
+        states={'__raw__':{r['when']['entity_id']:(self.hass.states.get(r['when']['entity_id']).state if self.hass.states.get(r['when']['entity_id']) else 'unavailable','') for r in rules}}
+        if not hasattr(self,'notification_rules'):
+            from .automation import NotificationRules
+            self.notification_rules=NotificationRules()
+        for rule in self.notification_rules.evaluate(rules,states):
+            self.notify(rule['message'],rule['duration'],rule['priority'])
+            self.hass.async_create_task(self.async_request_refresh())
 
     def _evaluate_page_rules(self,prime=False):
         from .rules import condition_key

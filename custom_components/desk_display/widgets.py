@@ -19,7 +19,7 @@ def validate_config(widget):
     if kind in ('cost','weather','countdown'):
         from .data_widgets import validate
         validate(widget);return
-    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'sensor':{'detail_enabled','detail_minutes'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert','battery_soc','wallbox','power_unit'}}.get(kind,set())
+    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'sensor':{'detail_enabled','detail_minutes'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert','battery_soc','wallbox','power_unit','car_soc','car_target','car_remaining','flow_labels'}}.get(kind,set())
     if set(config)-allowed:raise ValueError('Unbekannte Elementeinstellung')
     if kind=='sensor':
         if type(config.get('detail_enabled',False)) is not bool:raise ValueError('Ungültige Detailansicht')
@@ -43,11 +43,11 @@ def validate_config(widget):
         import re
         for key in ('solar','house','battery','grid'):
             if not isinstance(config.get(key,''),str) or not re.fullmatch(r'[a-z_][a-z0-9_]*\.[a-z0-9_]+',config.get(key,'')):raise ValueError('Energiefluss: vier HA-Entitaeten auswaehlen')
-        for key in ('battery_soc','wallbox'):
+        for key in ('battery_soc','wallbox','car_soc','car_target','car_remaining'):
             entity=config.get(key,'')
             if not isinstance(entity,str) or (entity and not re.fullmatch(r'sensor\.[a-z0-9_]+',entity)):raise ValueError('Batteriestand und Wallbox: Sensor auswählen oder leer lassen')
         if config.get('power_unit','auto') not in ('auto','factor'):raise ValueError('Ungültige Leistungseinheit')
-        for key in ('grid_invert','battery_invert'):
+        for key in ('grid_invert','battery_invert','flow_labels'):
             if type(config.get(key,False)) is not bool:raise ValueError('Ungueltige Flussrichtung')
         if number(config.get('factor',1)) is None:raise ValueError('Ungueltiger Energiefaktor')
     for key in ('unit','active','on_text','off_text'):

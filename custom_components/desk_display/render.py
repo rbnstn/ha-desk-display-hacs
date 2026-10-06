@@ -12,6 +12,13 @@ from .rules import resolve_layout
 def render_image(layout, states, media=None):
     """Render a snapshot of state strings; clip each widget to its rectangle."""
     layout = resolve_layout(validate_layout(layout),states)
+    if any(w.get('style',{}).get('auto_fit') for w in layout['widgets']):
+        from .inspection import inspect_text
+        measured = inspect_text({k:v for k,v in layout.items() if k != 'pages'}, [states])
+        for item in measured['sizes']:
+            widget = layout['widgets'][item['index']]
+            if widget.get('style',{}).get('auto_fit'):
+                widget['size'] = item['size']
     image = Image.new("RGB", (WIDTH, HEIGHT), layout["background"])
     for widget in layout["widgets"]:
         if widget['kind']=='door_history':

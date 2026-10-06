@@ -3,7 +3,7 @@ import math
 from PIL import Image, ImageDraw, ImageFont, ImageColor
 from .widgets import number
 
-ROLES = ('solar', 'house', 'battery', 'grid', 'battery_soc', 'wallbox')
+ROLES = ('solar', 'house', 'battery', 'grid', 'battery_soc', 'wallbox', 'car_soc', 'car_target', 'car_remaining')
 
 
 def power(config, states, role):
@@ -31,6 +31,14 @@ def snapshot(config, states):
     raw, unit = states.get('__raw__', {}).get(config.get('battery_soc', ''), ('unavailable', '%'))
     soc = number(raw)
     values['battery_soc'] = soc if soc is not None and 0 <= soc <= 100 and unit in ('%', '', None) else None
+    for role in ('car_soc', 'car_target'):
+        raw, unit = states.get('__raw__', {}).get(config.get(role, ''), ('unavailable', '%'))
+        value = number(raw)
+        values[role] = value if value is not None and 0 <= value <= 100 and unit in ('%', '', None) else None
+    raw, unit = states.get('__raw__', {}).get(config.get('car_remaining', ''), ('unavailable', 'min'))
+    value = number(raw)
+    factor = {'s':1/60, 'min':1, 'h':60}.get(unit)
+    values['car_remaining'] = value * factor if value is not None and value >= 0 and factor else None
     return values
 
 
@@ -82,6 +90,11 @@ def tile(widget, states, theme):
     draw.rounded_rectangle(box((0, 0, width - 1, height - 1)), radius=min(16, width / 8, height / 8) * scale, fill=background)
     muted = '#526076' if light else '#aab6c9'
     labels = {'solar': 'Solar', 'grid': 'Netz', 'house': 'Haus', 'battery': 'Batterie', 'wallbox': 'Wallbox'}
+    if config.get('flow_labels', True):
+        if values['grid'] is not None and abs(values['grid']) >= 1:
+            labels['grid'] = 'Bezug' if values['grid'] > 0 else 'Einspeisung'
+        if values['battery'] is not None and abs(values['battery']) >= 1:
+            labels['battery'] = 'Entlädt' if values['battery'] > 0 else 'Lädt'
     roles = ['solar', 'grid', 'battery', 'house'] + (['wallbox'] if config.get('wallbox') else [])
 
     # Very small old widgets remain legible as bounded cards instead of overlapping circles.
@@ -103,7 +116,7 @@ def tile(widget, states, theme):
     radius = min(width * .14, height * (.16 if wallbox else .18))
     centers = {'solar': (width * .17, height * .25), 'grid': (width * .50, height * (.20 if wallbox else .25)),
                'battery': (width * .83, height * .25), 'house': (width * .50, height * (.63 if wallbox else .74)),
-               'wallbox': (width * .17, height * .80)}
+               'wallbox': (width * .17, height * (.75 if config.get('car_soc') or config.get('car_target') or config.get('car_remaining') else .80))}
     radii = {role: radius * (1.08 if role == 'house' else 1) for role in roles}
     house = centers['house']
 
@@ -186,7 +199,19 @@ def tile(widget, states, theme):
         if role == 'battery' and config.get('battery_soc'):
             label = '— %' if values['battery_soc'] is None else f'{values["battery_soc"]:.0f} %'
         # Leave room for the curved outline at the value's vertical position.
-        text((x, y+r*(.32 if role == 'battery' and config.get('battery_soc') else .48)), label, min(widget['size'], r*.36), accent, r*1.40)
+        car = role == 'wallbox' and bool(config.get('car_soc'))
+        if car:
+            label = '— %' if values['car_soc'] is None else f'{values["car_soc"]:.0f} %'
+        text((x, y+r*(.32 if (role == 'battery' and config.get('battery_soc')) or car else .48)), label, min(widget['size'], r*.36), accent, r*1.40)
         if role == 'battery' and config.get('battery_soc'):
             text((x, y+r*.68), watts(values['battery']), 9, muted, r*1.18)
+        if car:
+            text((x, y+r*.68), watts(values['wallbox']), 9, muted, r*1.18)
+    if wallbox and (config.get('car_target') or config.get('car_remaining')):
+        info = []
+        if config.get('car_target'):
+            info.append('Ladeziel ' + ('—' if values['car_target'] is None else f'{values["car_target"]:.0f}') + ' %')
+        if config.get('car_remaining'):
+            info.append('Rest ' + ('—' if values['car_remaining'] is None else f'{values["car_remaining"]:.0f}') + ' min')
+        text((width/2, height-8), ' · '.join(info), 9, muted, width-16)
     return image.resize((width, height), Image.Resampling.LANCZOS)

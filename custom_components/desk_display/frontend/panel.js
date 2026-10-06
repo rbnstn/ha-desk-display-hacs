@@ -129,9 +129,10 @@ export class DeskDisplayPanel extends HTMLElement {
     const close=this.element('button',{},'Schließen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(close);this.shadowRoot.append(dialog);dialog.showModal();
     try {
       const saved=JSON.parse(this.savedSnapshot);
+      const previews=this.element('div',{class:'comparison-grid'});dialog.append(previews);
       for(const [title,state] of [['Gespeichert',saved],['Aktueller Entwurf',{layout:this.documentLayout(),doorbell:this.doorbell}]]) {
         const result=await this._hass.callWS({type:'desk_display/preview',layout:state.layout,doorbell:state.doorbell,overlay:this.overlayPreview,page:Math.min(this.pageIndex??0,state.layout.pages?.length??0)});
-        dialog.append(this.element('h3',{},title),this.element('img',{alt:title,src:`data:image/png;base64,${result.png}`,style:'width:100%;aspect-ratio:3/2'}));
+        const card=this.element('section');card.append(this.element('h3',{},title),this.element('img',{alt:title,src:`data:image/png;base64,${result.png}`,style:'width:100%;aspect-ratio:3/2'}));previews.append(card);
       }
     }catch(error){dialog.append(this.element('p',{},`Vergleich: ${error.message??error}`));}
   }
@@ -349,7 +350,72 @@ export class DeskDisplayPanel extends HTMLElement {
     for (const w of widgets) {w.x+=dx;w.y+=dy;}
   }
   snapPosition(widget,x,y) {
-    return [Math.max(0,Math.min(480-widget.width,Math.round(x/8)*8)),Math.max(0,Math.min(320-widget.height,Math.round(y/8)*8))];
+    const others=this.layout.widgets.filter(w=>!w.hidden&&!this.selectedWidgets().includes(w));
+    return [['x','width',480,x],['y','height',320,y]].map(([axis,size,bound,raw])=>{
+      const edges=[0,bound/2,bound,...others.flatMap(w=>[w[axis],w[axis]+w[size]/2,w[axis]+w[size]])];
+      const gaps=new Set([8]);for(const a of others)for(const b of others){const gap=b[axis]-a[axis]-a[size];if(gap>=0&&gap<=80)gaps.add(gap);}
+      const targets=edges.flatMap(edge=>[edge,edge-widget[size]/2,edge-widget[size]]);
+      for(const w of others)for(const gap of gaps)targets.push(w[axis]-gap-widget[size],w[axis]+w[size]+gap);
+      const nearby=targets.filter(target=>target>=0&&target<=bound-widget[size]&&Math.abs(target-raw)<=5).sort((a,b)=>Math.abs(a-raw)-Math.abs(b-raw));
+      return Math.round(Math.max(0,Math.min(bound-widget[size],nearby[0]??Math.round(raw/8)*8)));
+    });
+  }
+
+  applySelectionStyle(key,value) {
+    for(const widget of this.selectedWidgets().filter(w=>!w.locked)) {
+      if(key==='size'||key==='color'){widget[key]=value;widget.inherit_design=false;}
+      else {(widget.style??={})[key]=value;}
+    }
+    this.recordEdit();this.draw();this.schedulePreview();
+  }
+  templateKey() {return `desk-display-templates:${this._hass?.user?.id??'local'}`;}
+  ownTemplates() {
+    try {const items=JSON.parse(localStorage.getItem(this.templateKey())??'[]');return Array.isArray(items)?items.filter(t=>t&&typeof t.name==='string'&&typeof t.id==='string'&&t.data&&['desk-display-page','desk-display-components'].includes(t.data.format)).slice(0,8):[];}catch{return [];}
+  }
+  saveOwnTemplate(components=false) {
+    const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Eigene Vorlage speichern'});
+    const name=this.element('input',{'aria-label':'Vorlagenname',maxlength:40,value:components?'Meine Komponente':'Meine Seite'});
+    const save=this.element('button',{},'Vorlage speichern');
+    save.onclick=()=>{
+      try {
+        if(!name.value.trim())throw new Error('Bitte einen Namen eingeben.');
+        const items=this.ownTemplates();if(items.length>=8)throw new Error('Maximal acht Vorlagen. Bitte zuerst eine löschen.');
+        const page=this.layout;
+        const data=components?{format:'desk-display-components',version:1,widgets:structuredClone(this.selectedWidgets())}:{format:'desk-display-page',version:1,page:{background:page.background,theme:page.theme??'classic',widgets:structuredClone(page.widgets)}};
+        items.push({id:Date.now().toString(36),name:name.value.trim(),data});const encoded=JSON.stringify(items);
+        if(encoded.length>1500000)throw new Error('Vorlagen sind zu groß. Bitte als Datei exportieren.');
+        localStorage.setItem(this.templateKey(),encoded);dialog.close();dialog.remove();this.draw();this.status('Vorlage in diesem Browser gespeichert. Für andere Geräte als Datei exportieren.');
+      }catch(error){this.status(error.message??String(error));}
+    };
+    const cancel=this.element('button',{class:'secondary'},'Abbrechen');cancel.onclick=()=>{dialog.close();dialog.remove();};
+    dialog.append(this.element('h2',{},'Eigene Vorlage speichern'),name,save,cancel);this.shadowRoot.append(dialog);dialog.showModal();
+  }
+  async useOwnTemplate(item) {
+    try {
+      const root=structuredClone(this.documentLayout());let page=this.pageIndex?root.pages[this.pageIndex-1]:root;
+      if(item.data.format==='desk-display-components') {
+        const widgets=structuredClone(item.data.widgets);const group='template'+Date.now().toString(36);
+        for(const w of widgets){w.group=group;w.locked=false;}page.widgets.push(...widgets);
+      } else if(item.data.format==='desk-display-page') {
+        root.pages??=[];root.pages.push({...structuredClone(item.data.page),page_name:item.name.slice(0,20)});
+      } else throw new Error('Unbekannte Vorlage.');
+      await this._hass.callWS({type:'desk_display/preview',layout:root,doorbell:this.doorbell,overlay:false});
+      this.rootLayout=this.layout=root;this.pageIndex=0;this.widgetIndex=0;this.selection=new Set([0]);this.draw();this.preview();this.status('Vorlage geprüft. Zum Übertragen speichern.');
+    }catch(error){this.status(`Vorlage: ${error.message??error}`);}
+  }
+  downloadTemplate(item) {
+    const url=URL.createObjectURL(new Blob([JSON.stringify(item.data,null,2)],{type:'application/json'}));
+    this.element('a',{href:url,download:'desk-display-template.json'}).click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async checkUpdates() {
+    const target=this.shadowRoot.querySelector('#updates-status');if(!target)return;
+    target.textContent='Updates werden geprüft …';
+    try {
+      const result=await this._hass.callWS({type:'desk_display/updates'});
+      const newer=(a,b)=>{const aa=a.split('.').map(Number),bb=b.split('.').map(Number);for(let i=0;i<3;i++){if(aa[i]!==bb[i])return aa[i]>bb[i];}return false;};
+      target.replaceChildren(this.element('p',{},`Integration: ${result.installed} · verfügbar: ${result.latest}${newer(result.latest,result.installed)?' · Update über HACS':' · aktuell'}`),this.element('p',{},`Firmware: ${this.devices[this.selected].firmware??'unbekannt'} · verfügbar: ${result.firmware??'Download wird vorbereitet'}`),this.element('a',{href:result.url,target:'_blank',rel:'noopener'},result.title));
+      if(result.firmware_url)target.append(this.element('p',{},'Firmwaredownload für E32R35T:'),this.element('a',{href:result.firmware_url},'Firmware herunterladen'));
+    }catch(error){target.textContent=`Updateprüfung: ${error.message??error}`;}
   }
 
   groupSelection(remove=false) {
@@ -415,7 +481,7 @@ export class DeskDisplayPanel extends HTMLElement {
   }
   wrapFields(parent,start,key,title,open=false) {
     const group=this.element('details',{class:'editor-group'});
-    group.hidden=!this.advanced && ['globaldesign','simulation','values','rules','arrange'].includes(key);
+    group.hidden=!this.advanced && ['globaldesign','simulation','rules','arrange'].includes(key);
     group.open=this.groupsOpen[key] ?? open;
     group.append(this.element('summary',{},title));
     const body=this.element('div',{class:'group-body'});
@@ -572,6 +638,7 @@ export class DeskDisplayPanel extends HTMLElement {
       const data=JSON.parse(await file.text());let layout,doorbell;
       if(data.version!==1)throw new Error('Unbekannte Dateiversion.');
       if(data.format==='desk-display-components') {layout=structuredClone(this.documentLayout());const page=this.pageIndex?layout.pages[this.pageIndex-1]:layout;page.widgets.push(...data.widgets);doorbell=this.doorbell;}
+      else if(data.format==='desk-display-page'){layout=structuredClone(this.documentLayout());layout.pages??=[];layout.pages.push({...data.page,page_name:'Importierte Seite'});doorbell=this.doorbell;}
       else if(data.format==='desk-display-theme'){layout=structuredClone(this.documentLayout());layout.design=data.design;for(const page of [layout,...(layout.pages??[])]){page.theme=data.theme;page.background=data.background;}doorbell=this.doorbell;}
       else if(data.format==='desk-display-layout'){layout=data.layout;doorbell=data.doorbell;}
       else throw new Error('Keine Desk-Display-Datei.');
@@ -764,6 +831,7 @@ export class DeskDisplayPanel extends HTMLElement {
       .rule-result{display:block;margin-top:12px}.rule-card label{margin:10px 0}
       .editor-group{border-top:1px solid var(--divider-color,#ddd);margin-top:12px}
       .add-dialog{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto;border:1px solid var(--divider-color,#ddd);border-radius:20px;padding:20px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1f2937)}
+      .compare-dialog{width:min(1100px,calc(100vw - 32px))}.comparison-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}@media(max-width:640px){.comparison-grid{grid-template-columns:1fr}}
       .add-dialog::backdrop{background:#0008}.add-dialog h2{margin:0 0 16px;font-size:20px}
       .type-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
       .type-choice{text-align:left;margin:0;background:var(--secondary-background-color,#e7e0ec);color:inherit;min-height:76px;border:1px solid var(--divider-color,#ddd)}
@@ -976,7 +1044,8 @@ export class DeskDisplayPanel extends HTMLElement {
     displayPanel.append(this.element('small',{},`Installierte Firmware: ${this.devices[this.selected].firmware??'unbekannt'}`));
     const firmwareFile=this.element('input',{type:'file',accept:'.bin','aria-label':'Firmware-Datei'});displayPanel.append(firmwareFile);
     const flash=this.element('button',{class:'secondary'},'Ausgewählte Firmware installieren');flash.disabled=!this.devices[this.selected].ota_update;flash.onclick=()=>this.updateFirmware(firmwareFile.files[0]);displayPanel.append(flash);
-    displayPanel.append(this.element('small',{},'Einmal Firmware 0.6.0 per USB installieren, danach sind Updates hier über WLAN möglich. Die lokal mit deinem bestehenden secrets.h gebaute firmware.bin auswählen (keine bootloader.bin oder partitions.bin). Das Gerät startet nach erfolgreichem Update neu; HA-Schlüssel bleiben im Browser verborgen.'));
+    displayPanel.append(this.element('small',{},'Einmal Firmware 0.6.0 per USB installieren, danach sind Updates hier über WLAN möglich. Die E32R35T .bin-Datei aus dem öffentlichen Release auswählen (keine bootloader.bin oder partitions.bin). Das Gerät startet nach erfolgreichem Update neu; HA-Schlüssel bleiben im Browser verborgen.'));
+    const updateCheck=this.element('button',{class:'secondary'},'Updates prüfen');updateCheck.onclick=()=>this.checkUpdates();displayPanel.append(updateCheck,this.element('div',{id:'updates-status',role:'status'}));
     this.wrapFields(displayPanel,firmwareStart,'firmware','Firmware aktualisieren');
     const pagesPanel=this.element('div',{'data-pane':'pages',role:'tabpanel'});
     pagesPanel.append(this.element('h2',{},'Seiten & Wechsel')); 
@@ -998,11 +1067,32 @@ export class DeskDisplayPanel extends HTMLElement {
     }
     const pageRule=this.element('button',{class:'secondary'},'Seitenregel hinzufügen');pageRule.disabled=rules.length>=8;
     pageRule.onclick=()=>{(this.documentLayout().page_rules??=[]).push({when:{entity_id:'',op:'eq',value:'on'},page:0,duration:30});this.draw();};pagesPanel.append(pageRule,this.element('small',{},'Regel löst beim Wechsel von nicht erfüllt zu erfüllt aus. Danach erscheint wieder die vorherige Seite. HA-Automationen können auch die Aktionen Desk Display: Meldung anzeigen und Seite anzeigen verwenden.'));
+    const notificationStart=displayPanel.childNodes.length;
+    const notificationRules=this.documentLayout().notification_rules??[];
+    for(const [index,rule] of notificationRules.entries()){
+      const card=this.element('div',{class:'rule-card'});this.conditionFields(card,rule.when);
+      this.field(card,'Hinweistext',rule.message,v=>rule.message=v,{maxlength:160});
+      this.field(card,'Hinweis anzeigen (Sekunden)',rule.duration,v=>rule.duration=Number(v),{type:'number',min:5,max:300});
+      this.field(card,'Priorität (0 bis 3)',rule.priority,v=>rule.priority=Number(v),{type:'number',min:0,max:3});
+      const remove=this.element('button',{class:'secondary'},'Hinweisregel entfernen');remove.onclick=()=>{notificationRules.splice(index,1);this.draw();this.schedulePreview();};card.append(remove);displayPanel.append(card);
+    }
+    const addNotification=this.element('button',{class:'secondary'},'Hinweisregel hinzufügen');addNotification.disabled=notificationRules.length>=8;
+    addNotification.onclick=()=>{(this.documentLayout().notification_rules??=[]).push({when:{entity_id:'',op:'eq',value:'on'},message:'Fenster geöffnet',duration:15,priority:0});this.draw();};displayPanel.append(addNotification,this.element('small',{},'Hinweise erscheinen beim Wechsel von nicht erfüllt zu erfüllt, verschwinden automatisch und werden beim Start nicht erneut ausgelöst. Für Waschmaschine, Fenster oder Stromverbrauch. Klingeln hat Vorrang.'));
+    this.wrapFields(displayPanel,notificationStart,'notifications','Hinweise & Meldungen');
     const templatesStart=displayPanel.childNodes.length;
     for(const [type,label] of [['energy','Energieübersicht'],['status','Schalterübersicht'],['clock','Uhrzeit mit Datum'],['camera','Kameraansicht']]){
       const button=this.element('button',{class:'secondary'},label);button.onclick=()=>this.addTemplate(type);displayPanel.append(button);
     }
     displayPanel.append(this.element('small',{},'Vorlagen ergänzen die Seite. Energie, Schalter und Kamera werden zuerst gezielt zugeordnet. Eigene Komponenten unter Sicherungen & Dateien wiederverwenden.'));
+
+    for(const [components,label] of [[false,'Aktuelle Seite als Vorlage speichern'],[true,'Auswahl als Vorlage speichern']]){const button=this.element('button',{class:'secondary'},label);button.onclick=()=>this.saveOwnTemplate(components);displayPanel.append(button);}
+    for(const item of this.ownTemplates()){
+      const row=this.element('div',{class:'rule-card'});row.append(this.element('strong',{},item.name));
+      const use=this.element('button',{class:'secondary'},'Vorlage einsetzen');use.onclick=()=>this.useOwnTemplate(item);
+      const download=this.element('button',{class:'secondary'},'Vorlage exportieren');download.onclick=()=>this.downloadTemplate(item);
+      const remove=this.element('button',{class:'secondary'},'Vorlage löschen');remove.onclick=()=>{localStorage.setItem(this.templateKey(),JSON.stringify(this.ownTemplates().filter(t=>t.id!==item.id)));this.draw();};row.append(use,download,remove);displayPanel.append(row);
+    }
+    displayPanel.append(this.element('small',{},'Eigene Vorlagen sind pro HA-Benutzer in diesem Browser gespeichert. Seitenvorlagen ergänzen eine neue Seite; Komponenten ergänzen die aktuelle Seite. Exportdateien können auf anderen Geräten importiert werden.'));
     this.wrapFields(displayPanel,templatesStart,'templates','Vorlagen');
     const filesStart=displayPanel.childNodes.length;
     const exportButton=this.element('button',{class:'secondary'},'Layout exportieren');exportButton.onclick=()=>this.exportDesign();displayPanel.append(exportButton);
@@ -1087,9 +1177,10 @@ export class DeskDisplayPanel extends HTMLElement {
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
       if(widget.kind==='energy') {
         const config=widget.config??={};
-        for(const [role,label] of [['solar','Solarleistung'],['house','Hausverbrauch'],['battery','Batterieleistung'],['grid','Netzleistung'],['battery_soc','Batteriestand (optional, %)'],['wallbox','Wallbox Leistung (optional)']]) {
+        for(const [role,label] of [['solar','Solarleistung'],['house','Hausverbrauch'],['battery','Batterieleistung'],['grid','Netzleistung'],['battery_soc','Batteriestand (optional, %)'],['wallbox','Wallbox Leistung (optional)'],['car_soc','Auto Ladestand (optional, %)'],['car_target','Auto Ladeziel (optional, %)'],['car_remaining','Auto Restladezeit (optional, min / h / s)']]) {
           const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.includeDomains=['sensor'];picker.value=config[role]??'';picker.addEventListener('value-changed',event=>{config[role]=event.detail.value??'';this.schedulePreview();});settings.append(picker);
         }
+        const flowLabels=this.element('input',{type:'checkbox','aria-label':'Flusszustände beschriften'});flowLabels.checked=config.flow_labels??true;flowLabels.onchange=()=>{config.flow_labels=flowLabels.checked;this.schedulePreview();};const flowLabel=this.element('label');flowLabel.append(flowLabels,document.createTextNode('Bezug, Einspeisung, Laden und Entladen beschriften'));settings.append(flowLabel);
         const unitMode=this.element('select',{'aria-label':'Leistungseinheiten'});for(const [value,label] of [['auto','W / kW aus Home Assistant'],['factor','Eigener Umrechnungsfaktor']])unitMode.append(this.element('option',{value},label));
         unitMode.value=config.power_unit??((config.factor??1)!==1?'factor':'auto');unitMode.onchange=()=>{config.power_unit=unitMode.value;this.draw();this.schedulePreview();};settings.append(unitMode);
         if(unitMode.value==='factor')this.field(settings,'Faktor für Werte in Watt',config.factor??1,v=>config.factor=Number(v),{type:'number',step:'any'});
@@ -1179,6 +1270,12 @@ export class DeskDisplayPanel extends HTMLElement {
           const valueStart=settings.childNodes.length;
           settings.append(this.element('small',{},'Beschriftung links, Wert rechts. Zahlenänderungen betreffen nur die Displayanzeige.'));
           const value=widget.value ??= {};
+          const format=this.element('select',{'aria-label':'Zahlenformat Vorlage'});
+          for(const [key,label] of [['','Vorlage wählen'],['power','Leistung W / kW'],['temperature','Temperatur'],['percentage','Prozent'],['number','Zahl']])format.append(this.element('option',{value:key},label));
+          format.onchange=()=>{if(!format.value)return;value.decimal_separator=',';value.factor=1;value.invert=false;value.auto_power=format.value==='power';value.decimals=format.value==='temperature'?1:format.value==='percentage'?0:2;if(format.value==='percentage')value.unit='%';else delete value.unit;this.draw();this.schedulePreview();};settings.append(format);
+          const autoPower=this.element('input',{type:'checkbox','aria-label':'W und kW automatisch umschalten'});autoPower.checked=!!value.auto_power;autoPower.onchange=()=>{value.auto_power=autoPower.checked;this.schedulePreview();};const powerLabel=this.element('label');powerLabel.append(autoPower,document.createTextNode('W und kW automatisch umschalten'));settings.append(powerLabel);
+          const separator=this.element('select',{'aria-label':'Dezimaltrennzeichen'});separator.append(this.element('option',{value:','},'Komma'),this.element('option',{value:'.'},'Punkt'));separator.value=value.decimal_separator??'.';separator.onchange=()=>{value.decimal_separator=separator.value;this.schedulePreview();};settings.append(separator);
+
           this.field(settings,'Umrechnungsfaktor',value.factor ?? 1,input=>value.factor=Number(input.replace(',','.')),{type:'text',inputmode:'decimal'});
           this.field(settings,'Eigene Einheit (leer = ohne Einheit)',value.unit ?? '',input=>value.unit=input,{maxlength:16});
           const haUnit=this.element('button',{class:'secondary'},'HA-Einheit verwenden');
@@ -1246,6 +1343,13 @@ export class DeskDisplayPanel extends HTMLElement {
       }
       this.wrapFields(settings,positionStart,'position','Position & Größe');
       const appearanceStart=settings.childNodes.length;
+      if(this.selectedWidgets().length>1){
+        const bulk=this.element('div',{class:'rule-card'});bulk.append(this.element('strong',{},`${this.selectedWidgets().length} Elemente gemeinsam bearbeiten`));
+        this.field(bulk,'Auswahl: Schriftgröße',widget.size,value=>this.applySelectionStyle('size',Number(value)),{type:'number',min:12,max:64});
+        this.field(bulk,'Auswahl: Textfarbe',widget.color,value=>this.applySelectionStyle('color',value),{type:'color'});
+        const alignment=this.element('select',{'aria-label':'Auswahl: Textausrichtung'});for(const [key,label] of [['','Ausrichtung wählen'],['left','Linksbündig'],['center','Zentriert'],['right','Rechtsbündig']])alignment.append(this.element('option',{value:key},label));alignment.onchange=()=>{if(alignment.value)this.applySelectionStyle('align',alignment.value);};bulk.append(alignment);settings.append(bulk);
+      }
+
       const inherit=this.element('input',{type:'checkbox'});inherit.checked=widget.inherit_design??true;inherit.onchange=()=>{widget.inherit_design=inherit.checked;this.schedulePreview();};const inheritLabel=this.element('label');inheritLabel.append(inherit,document.createTextNode('Globales Design übernehmen'));settings.append(inheritLabel);
       this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
@@ -1267,6 +1371,7 @@ export class DeskDisplayPanel extends HTMLElement {
         align.value=style.align ?? (widget.kind==='button'?'center':widget.kind==='sensor'?'right':'left');
         align.onchange=()=>{style.align=align.value;this.schedulePreview();};
         const label=this.element('label',{},'Textausrichtung');label.append(align);settings.append(label);
+        const autoFit=this.element('input',{type:'checkbox','aria-label':'Schrift automatisch anpassen'});autoFit.checked=!!style.auto_fit;autoFit.onchange=()=>{style.auto_fit=autoFit.checked;this.schedulePreview();};const autoLabel=this.element('label');autoLabel.append(autoFit,document.createTextNode('Schrift automatisch anpassen'));settings.append(autoLabel,this.element('small',{},'Passt wechselnde Werte bis zur eingestellten Schriftgröße an. Mindestgröße: 12 px.'));
         const fit=this.element('button',{class:'secondary'},'Schrift passend verkleinern');fit.onclick=()=>this.fitText();settings.append(fit);
       }
       this.wrapFields(settings,appearanceStart,'appearance','Aussehen');

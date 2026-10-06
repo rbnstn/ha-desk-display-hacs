@@ -14,7 +14,7 @@ from .doorbell import get_doorbell, validate_doorbell, overlay_layout
 
 @callback
 def register_commands(hass):
-    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics, ringing_history, inspect):
+    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics, ringing_history, inspect, updates):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -213,3 +213,29 @@ async def inspect(hass,connection,msg):
     except ValueError as error:
         connection.send_error(msg['id'],'invalid_layout',str(error));return
     connection.send_result(msg['id'],result)
+
+
+@websocket_api.websocket_command({'type':'desk_display/updates'})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def updates(hass,connection,msg):
+    import json,re
+    from pathlib import Path
+    from time import monotonic
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    import aiohttp
+    cached=hass.data.get('desk_display_release_cache')
+    if cached and monotonic()-cached[0]<900:
+        connection.send_result(msg['id'],cached[1]);return
+    try:
+        async with async_get_clientsession(hass).get('https://api.github.com/repos/rbnstn/ha-desk-display-hacs/releases/latest',timeout=aiohttp.ClientTimeout(total=10)) as response:
+            response.raise_for_status();release=await response.json()
+        installed=await hass.async_add_executor_job(lambda:json.loads(Path(__file__).with_name('manifest.json').read_text())['version'])
+        result={'installed':installed,'latest':release['tag_name'].removeprefix('v'),'title':release['name'],'url':release['html_url']}
+        for asset in release.get('assets',[]):
+            version=re.fullmatch(r'desk-display-e32r35t-([0-9]+\.[0-9]+\.[0-9]+)\.bin',asset['name'])
+            if version:result.update(firmware=version.group(1),firmware_url=asset['browser_download_url'])
+        hass.data['desk_display_release_cache']=(monotonic(),result)
+        connection.send_result(msg['id'],result)
+    except (aiohttp.ClientError,TimeoutError,ValueError,KeyError):
+        connection.send_error(msg['id'],'update_check_failed','Updates derzeit nicht abrufbar. Bitte später erneut versuchen.')
