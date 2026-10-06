@@ -446,3 +446,23 @@ Nach Veröffentlichung des Releases wird die Datei automatisch angehängt. Vorha
 werden nicht ersetzt; geänderte Firmware benötigt eine neue Firmwareversionsnummer.
 WLAN Daten und Geräteschlüssel werden erst am Display eingerichtet. Lokale secrets.h und
 Buildordner werden nicht ins öffentliche Repository exportiert.
+
+
+## Version 0.29.0: Moderner Energiefluss
+
+Neue farbige Kreise mit eigenen Symbolen, geglätteten Linien und eindeutigen
+Pfeilrichtungen. Das Haus steht im Zentrum. Ein optionaler Batteriestand Sensor
+in Prozent ergänzt Ladeanzeige und Batterieleistung; ein optionaler Wallbox
+Leistungssensor ergänzt einen weiteren Kreis. Ohne diese Zuordnungen bleiben
+bestehende Layouts nutzbar. Kleine Elemente verwenden eine kompakte Ansicht.
+
+W und kW werden pro Sensor automatisch umgerechnet. Bereits eingestellte
+eigene Faktoren bleiben erhalten und können im Element unter Leistungseinheiten
+auf automatische Einheiten umgestellt werden. Unverfügbare oder unpassende
+Werte zeigen keine aktiven Flüsse. Positive Batterie-/Netzwerte fließen zum Haus;
+die vorhandene Vorzeichenumkehr bleibt erhalten. Der Hauswert wird direkt vom
+zugeordneten Sensor übernommen; die Wallbox wird nicht zusätzlich darauf addiert.
+
+Im Designer das Energiefluss Element auswählen und Batteriestand sowie Wallbox
+unter Inhalte zuordnen. Über HACS aktualisieren, HA neu starten und Designer
+neu laden. Dafür ist kein Firmwareupdate erforderlich.

@@ -219,13 +219,13 @@ export class DeskDisplayPanel extends HTMLElement {
     this.draw();this.schedulePreview();
   }
   chooseTemplate(type) {
-    const definitions={energy:[['solar','PV Leistung',['sensor']],['house','Hausverbrauch',['sensor']],['grid','Netzleistung',['sensor']],['battery','Batterieleistung',['sensor']]],status:[['one','Erster Schalter',['switch','input_boolean']],['two','Zweiter Schalter (optional)',['switch','input_boolean']],['three','Dritter Schalter (optional)',['switch','input_boolean']]],camera:[['source','Kamera',['camera']]]};
+    const definitions={energy:[['solar','PV Leistung',['sensor']],['house','Hausverbrauch',['sensor']],['grid','Netzleistung',['sensor']],['battery','Batterieleistung',['sensor']],['battery_soc','Batteriestand (optional, %)',['sensor']],['wallbox','Wallbox Leistung (optional)',['sensor']]],status:[['one','Erster Schalter',['switch','input_boolean']],['two','Zweiter Schalter (optional)',['switch','input_boolean']],['three','Dritter Schalter (optional)',['switch','input_boolean']]],camera:[['source','Kamera',['camera']]]};
     const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Vorlage einrichten'}),values={};
     dialog.append(this.element('h2',{},'Entitäten für die Vorlage auswählen'));
     for(const [key,label,domains] of definitions[type]) {
       const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.includeDomains=domains;
-      const candidates=Object.entries(this._hass.states).filter(([id,state])=>domains.includes(id.split('.')[0]) && (type!=='energy' || ['W','kW'].includes(state.attributes.unit_of_measurement)));
-      const hints={solar:/pv|solar|photovoltaik/i,house:/hausverbrauch|house.*consum|load.*power/i,grid:/netz|grid/i,battery:/batter|akku/i};
+      const candidates=Object.entries(this._hass.states).filter(([id,state])=>domains.includes(id.split('.')[0]) && (type!=='energy' || (key==='battery_soc'?state.attributes.unit_of_measurement==='%':['W','kW'].includes(state.attributes.unit_of_measurement))));
+      const hints={solar:/pv|solar|photovoltaik/i,house:/hausverbrauch|house.*consum|load.*power/i,grid:/netz|grid/i,battery:/batter|akku/i,battery_soc:/batter|akku|soc|state.*charge/i,wallbox:/wallbox|charger|ladeleistung|ev.*power/i};
       const match=type==='energy'?candidates.find(([id,state])=>hints[key].test(id+' '+(state.attributes.friendly_name??''))):candidates.length===1?candidates[0]:null;
       if(match){values[key]=match[0];picker.value=match[0];}
       picker.addEventListener('value-changed',event=>values[key]=event.detail.value??'');dialog.append(picker);
@@ -233,11 +233,11 @@ export class DeskDisplayPanel extends HTMLElement {
     const error=this.element('p',{role:'status'});dialog.append(error);
     const add=this.element('button',{},'Vorlage hinzufügen');
     add.onclick=()=>{
-      const required=type==='energy'?definitions[type].map(d=>d[0]):[definitions[type][0][0]];
+      const required=type==='energy'?['solar','house','grid','battery']:[definitions[type][0][0]];
       if(required.some(k=>!values[k])){error.textContent='Bitte die benötigten Entitäten auswählen.';return;}
       const widgets=[];const color=this.layout.theme==='material_light'?'#1d1b20':'#e6e0e9';
       const make=(kind,text,entity,x,y,width,height)=>({kind,text,entity_id:entity,x,y,width,height,size:24,color});
-      if(type==='energy')widgets.push({...make('energy','Energiefluss','',16,16,448,240),config:{...values}});
+      if(type==='energy')widgets.push({...make('energy','Energiefluss','',16,16,448,240),config:{...values,power_unit:'auto'}});
       if(type==='camera')widgets.push({...make('media','Kamera','',16,16,this.devices[this.selected].jpeg_regions?448:160,this.devices[this.selected].jpeg_regions?240:120),source:values.source,fps:1});
       if(type==='status')Object.values(values).filter(Boolean).forEach((entity,i)=>widgets.push(make('switch',this._hass.states[entity]?.attributes.friendly_name?.slice(0,80)??entity,entity,16,16+i*68,448,60)));
       if(this.layout.widgets.length+widgets.length>10 || (type==='camera' && this.layout.widgets.some(w=>w.kind==='media'))){error.textContent='Die Vorlage passt nicht auf diese Seite.';return;}
@@ -423,7 +423,7 @@ export class DeskDisplayPanel extends HTMLElement {
     if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player','cost','weather','countdown','door_history'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
     const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung',cost:'Energiekosten',weather:'Wetter',countdown:'Countdown',door_history:'Klingelverlauf'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,200],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72],door_history:[320,224]};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,224],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72],door_history:[320,224]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0) && this.documentLayout().navigation!==false?276:320;
@@ -473,7 +473,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Batterie und Netz'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin'],['door_history','Klingelverlauf','Letzte Klingelereignisse mit optionalen Bildern']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Netz, Batteriestand und optionale Wallbox'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin'],['door_history','Klingelverlauf','Letzte Klingelereignisse mit optionalen Bildern']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -1083,12 +1083,14 @@ export class DeskDisplayPanel extends HTMLElement {
       this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
       if(widget.kind==='energy') {
         const config=widget.config??={};
-        for(const [role,label] of [['solar','Solarleistung'],['house','Hausverbrauch'],['battery','Batterieleistung'],['grid','Netzleistung']]) {
-          const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.value=config[role]??'';picker.addEventListener('value-changed',event=>{config[role]=event.detail.value??'';this.schedulePreview();});settings.append(picker);
+        for(const [role,label] of [['solar','Solarleistung'],['house','Hausverbrauch'],['battery','Batterieleistung'],['grid','Netzleistung'],['battery_soc','Batteriestand (optional, %)'],['wallbox','Wallbox Leistung (optional)']]) {
+          const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.includeDomains=['sensor'];picker.value=config[role]??'';picker.addEventListener('value-changed',event=>{config[role]=event.detail.value??'';this.schedulePreview();});settings.append(picker);
         }
-        this.field(settings,'Faktor für Werte in Watt',config.factor??1,v=>config.factor=Number(v),{type:'number',step:'any'});
+        const unitMode=this.element('select',{'aria-label':'Leistungseinheiten'});for(const [value,label] of [['auto','W / kW aus Home Assistant'],['factor','Eigener Umrechnungsfaktor']])unitMode.append(this.element('option',{value},label));
+        unitMode.value=config.power_unit??((config.factor??1)!==1?'factor':'auto');unitMode.onchange=()=>{config.power_unit=unitMode.value;this.draw();this.schedulePreview();};settings.append(unitMode);
+        if(unitMode.value==='factor')this.field(settings,'Faktor für Werte in Watt',config.factor??1,v=>config.factor=Number(v),{type:'number',step:'any'});
         for(const role of ['grid','battery']){const check=this.element('input',{type:'checkbox'});check.checked=!!config[role+'_invert'];check.onchange=()=>{config[role+'_invert']=check.checked;this.schedulePreview();};const label=this.element('label');label.append(check,document.createTextNode((role==='grid'?'Netz':'Batterie')+'-Vorzeichen umkehren'));settings.append(label);}
-        settings.append(this.element('small',{},'Positive Netz-/Batteriewerte fließen zum Haus; negative Werte fließen aus dem Haus.'));
+        settings.append(this.element('small',{},'Positive Netz-/Batteriewerte fließen zum Haus; negative Werte bedeuten Einspeisung bzw. Laden. Wallbox: positive Werte sind Verbrauch, negative Werte Rückspeisung. Batteriestand benötigt einen Sensor in %. Ohne Wallbox Sensor wird dieser Kreis ausgeblendet.'));
       } else if(['progress','gauge','chip','chart'].includes(widget.kind)) {
         const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.value=widget.entity_id;picker.label='HA-Entität';picker.addEventListener('value-changed',event=>{widget.entity_id=event.detail.value??'';this.schedulePreview();});settings.append(picker);
         const config=widget.config??={};

@@ -42,7 +42,7 @@ def validate_rules(widget):
 
 def entities(widget):
     linked=[widget.get('entity_id',''),widget.get('value',{}).get('fallback_entity_id',''),widget.get('config',{}).get('tariff_entity_id','')]
-    if widget['kind']=='energy':linked.extend(widget.get('config',{}).get(role,'') for role in ('solar','house','battery','grid'))
+    if widget['kind']=='energy':linked.extend(widget.get('config',{}).get(role,'') for role in ('solar','house','battery','grid','battery_soc','wallbox'))
     return [e for e in linked if e]+[c['entity_id'] for c in ([widget['visible_when']] if 'visible_when' in widget else [])+[r['when'] for r in widget.get('rules',[])]]
 
 def condition_key(condition):

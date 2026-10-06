@@ -19,7 +19,7 @@ def validate_config(widget):
     if kind in ('cost','weather','countdown'):
         from .data_widgets import validate
         validate(widget);return
-    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'sensor':{'detail_enabled','detail_minutes'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert'}}.get(kind,set())
+    allowed={'progress':{'min','max','unit'},'gauge':{'min','max','unit'},'chip':{'active','on_text','off_text'},'chart':{'minutes','min','max','threshold','factor','unit'},'sensor':{'detail_enabled','detail_minutes'},'button':{'hold_entity_id','confirm'},'slider':set(),'player':set(),'energy':{'solar','house','battery','grid','factor','grid_invert','battery_invert','battery_soc','wallbox','power_unit'}}.get(kind,set())
     if set(config)-allowed:raise ValueError('Unbekannte Elementeinstellung')
     if kind=='sensor':
         if type(config.get('detail_enabled',False)) is not bool:raise ValueError('Ungültige Detailansicht')
@@ -43,6 +43,10 @@ def validate_config(widget):
         import re
         for key in ('solar','house','battery','grid'):
             if not isinstance(config.get(key,''),str) or not re.fullmatch(r'[a-z_][a-z0-9_]*\.[a-z0-9_]+',config.get(key,'')):raise ValueError('Energiefluss: vier HA-Entitaeten auswaehlen')
+        for key in ('battery_soc','wallbox'):
+            entity=config.get(key,'')
+            if not isinstance(entity,str) or (entity and not re.fullmatch(r'sensor\.[a-z0-9_]+',entity)):raise ValueError('Batteriestand und Wallbox: Sensor auswählen oder leer lassen')
+        if config.get('power_unit','auto') not in ('auto','factor'):raise ValueError('Ungültige Leistungseinheit')
         for key in ('grid_invert','battery_invert'):
             if type(config.get(key,False)) is not bool:raise ValueError('Ungueltige Flussrichtung')
         if number(config.get('factor',1)) is None:raise ValueError('Ungueltiger Energiefaktor')
@@ -106,20 +110,8 @@ def tile(widget,states,theme):
         draw.text((4,max(0,height-15)),f'{values[-1]:g} {config.get("unit",raw[1])}',font=small,fill=color)
         return image
     if kind=='energy':
-        centers={'solar':(width*.25,height*.23),'house':(width*.75,height*.23),'battery':(width*.25,height*.75),'grid':(width*.75,height*.75)}
-        center=(width*.5,height*.5);labels={'solar':'Solar','house':'Haus','battery':'Batterie','grid':'Netz'}
-        for role,point in centers.items():
-            state=states.get('__raw__',{}).get(config.get(role,''),('unavailable',''));value=number(state[0]);value=None if value is None else value*float(config.get('factor',1))
-            if role in ('grid','battery') and config.get(role+'_invert'):value=None if value is None else -value
-            inward=role=='solar' or (role in ('grid','battery') and value is not None and value>=0)
-            a,b=(point,center) if inward else (center,point)
-            if value is not None and abs(value)>.01:
-                draw.line((a,b),fill=color,width=2);dx=b[0]-a[0];dy=b[1]-a[1];length=max(1,math.hypot(dx,dy));ux,uy=dx/length,dy/length
-                tip=((a[0]+b[0])/2,(a[1]+b[1])/2);draw.polygon([tip,(tip[0]-ux*8-uy*4,tip[1]-uy*8+ux*4),(tip[0]-ux*8+uy*4,tip[1]-uy*8-ux*4)],fill=color)
-            draw.rounded_rectangle((point[0]-width*.2,point[1]-20,point[0]+width*.2,point[1]+20),radius=min(8,radius),fill=surface)
-            text=labels[role]+'\n'+('—' if value is None else f'{abs(value):g} W')
-            draw.multiline_text((point[0]-width*.18,point[1]-16),text,font=small,fill=color)
-        return image
+        from .energy import tile as energy_tile
+        return energy_tile(widget,states,theme)
     if kind=='chip':
         active=raw[0]==config.get('active','on');text=config.get('on_text','Aktiv') if active else config.get('off_text','Inaktiv')
         if raw[0] in ('unknown','unavailable'):text='Nicht verfügbar'
