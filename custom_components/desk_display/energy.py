@@ -39,7 +39,7 @@ def watts(value):
         return '—'
     value = abs(value)
     if value >= 1000:
-        return (f'{value / 1000:.2f}'.rstrip('0').rstrip('.').replace('.', ',') + ' kW')
+        return f'{value / 1000:.2f}'.replace('.', ',') + ' kW'
     return f'{value:.0f} W'
 
 
@@ -185,7 +185,8 @@ def tile(widget, states, theme):
         label = watts(values[role])
         if role == 'battery' and config.get('battery_soc'):
             label = '— %' if values['battery_soc'] is None else f'{values["battery_soc"]:.0f} %'
-        text((x, y+r*(.32 if role == 'battery' and config.get('battery_soc') else .48)), label, min(widget['size'], r*.43), accent, r*1.65)
+        # Leave room for the curved outline at the value's vertical position.
+        text((x, y+r*(.32 if role == 'battery' and config.get('battery_soc') else .48)), label, min(widget['size'], r*.36), accent, r*1.40)
         if role == 'battery' and config.get('battery_soc'):
-            text((x, y+r*.68), watts(values['battery']), 9, muted, r*1.45)
+            text((x, y+r*.68), watts(values['battery']), 9, muted, r*1.18)
     return image.resize((width, height), Image.Resampling.LANCZOS)
