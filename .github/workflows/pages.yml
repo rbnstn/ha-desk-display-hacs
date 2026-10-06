@@ -3,8 +3,9 @@ on:
   push:
     branches: [main]
     paths: ['site/**', '.github/workflows/pages.yml']
-  release:
-    types: [published]
+  workflow_run:
+    workflows: [Firmware build and release]
+    types: [completed]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,6 +16,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'release')
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -29,13 +31,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
-          import json, os, pathlib, subprocess, time
+          import json, os, pathlib, subprocess
           repo=os.environ['GITHUB_REPOSITORY']
-          if os.environ['GITHUB_EVENT_NAME']=='release':
-              for _ in range(40):
-                  release=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/releases/latest']))
-                  if any(a['name']=='web-install-manifest.json' for a in release['assets']):break
-                  time.sleep(10)
           releases=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/releases?per_page=30']))
           for release in releases:
               if release['draft'] or release['prerelease'] or not any(a['name']=='web-install-manifest.json' for a in release['assets']):continue
