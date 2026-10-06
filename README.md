@@ -100,8 +100,9 @@ Für dieses Feature mit vorhandener JPEG-Firmware ist kein erneutes Flashen nöt
 ## Display-Firmware
 
 Das Display braucht die passende Desk-Display-Firmware und muss über WLAN
-von HA erreichbar sein. Dieses Repository verteilt ausschließlich die
-HA-Integration; Firmware und deren Entwicklung werden separat verwaltet.
+von HA erreichbar sein. Unter Assets des HACS Releases steht die automatisch
+gebaute Firmware als .bin bereit. Entwicklung und Tests finden weiterhin im
+Entwicklungsrepository statt. Die öffentlichen Buildquellen enthalten keine WLAN Daten.
 Die Hersteller-Demo ist nicht kompatibel. HACS flasht keine ESP32-Firmware.
 
 **Touch benötigt Firmware 0.2.0.** Nach dem Flashen die angezeigten Eckmarkierungen
