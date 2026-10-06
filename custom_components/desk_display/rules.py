@@ -43,7 +43,8 @@ def validate_rules(widget):
 def entities(widget):
     linked=[widget.get('entity_id',''),widget.get('value',{}).get('fallback_entity_id',''),widget.get('config',{}).get('tariff_entity_id','')]
     if widget['kind']=='energy':linked.extend(widget.get('config',{}).get(role,'') for role in ('solar','house','battery','grid','battery_soc','wallbox','car_soc','car_target','car_remaining'))
-    return [e for e in linked if e]+[c['entity_id'] for c in ([widget['visible_when']] if 'visible_when' in widget else [])+[r['when'] for r in widget.get('rules',[])]]
+    linked.extend(v for v in widget.get('config',{}).values() if isinstance(v,str) and ENTITY.fullmatch(v))
+    return [e for e in linked if e]+[c['entity_id'] for c in ([widget['visible_when']] if 'visible_when' in widget else [])+[r['when'] for r in widget.get('rules',[])]+[r['when'] for r in widget.get('icon_states',[])]]
 
 def condition_key(condition):
     return json.dumps(condition,sort_keys=True,separators=(",",":"))
@@ -69,6 +70,9 @@ def resolve_layout(layout,states):
     layout=copy.deepcopy(layout);widgets=[]
     for widget in layout['widgets']:
         if widget.get('hidden'):continue
+        from .enhancements import resolve_widget
+        widget=resolve_widget(widget,states)
+        if widget is None:continue
         design=layout.get('design',{})
         if widget.get('inherit_design',True) and widget['kind']!='navigation':
             for key in ('color','size'):

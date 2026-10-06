@@ -26,6 +26,14 @@ notify:
           min: 0
           max: 3
           mode: box
+    action_entity_id:
+      name: Aktion beim Tippen (optional)
+      selector:
+        entity:
+          filter:
+            - domain: button
+            - domain: input_button
+            - domain: script
 show_page:
   name: Display-Seite vorübergehend anzeigen
   description: Zeigt eine Seite und kehrt anschließend zur vorherigen Seite zurück. Seite 0 ist die Hauptseite.

@@ -38,6 +38,24 @@ def package(root=ROOT, destination=None):
                 'size_bytes': len(binary), 'credentials_embedded': False,
                 'platformio': '6.1.18', 'environment': 'e32r35t'}
     (destination / (name + '.json')).write_text(json.dumps(metadata, indent=2) + '\n')
+    build=root/'firmware/.pio/build/e32r35t'
+    boot_app=Path(os.environ.get('DESK_BOOT_APP0',str(Path.home()/'.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin')))
+    sources=[('bootloader.bin',build/'bootloader.bin',4096),('partitions.bin',build/'partitions.bin',32768),('boot_app0.bin',boot_app,57344),(name,build/'firmware.bin',65536)]
+    factory=bytearray(b'\xff'*(65536+len(binary)))
+    parts=[]
+    for filename,path,offset in sources:
+        data=path.read_bytes()
+        limit=next((position for _,_,position in sources if position>offset),len(factory))
+        if not data or offset+len(data)>limit:raise ValueError('Invalid boot partition sizes')
+        target=filename if filename==name else f'desk-display-e32r35t-{version}-'+filename
+        (destination/target).write_bytes(data)
+        factory[offset:offset+len(data)]=data
+        parts.append({'path':target,'offset':offset})
+    factory_name=f'desk-display-e32r35t-{version}-factory.bin'
+    (destination/factory_name).write_bytes(factory)
+    (destination/(factory_name+'.sha256')).write_text(hashlib.sha256(factory).hexdigest()+'  '+factory_name+'\n')
+    manifest={'name':'Desk Display E32R35T','version':version,'new_install_prompt_erase':True,'builds':[{'chipFamily':'ESP32','parts':parts}]}
+    (destination/'web-install-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     return metadata
 
 

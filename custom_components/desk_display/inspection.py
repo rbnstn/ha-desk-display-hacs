@@ -52,9 +52,11 @@ def inspect_text(layout, states_by_page):
 
             def fits(candidate):
                 for text, font_size, width, height in measurements:
-                    font = ImageFont.load_default(size=min(font_size, candidate))
-                    bounds = font.getbbox(text[:160])
-                    if max(font.getlength(text[:160]), bounds[2]-bounds[0]) > width or bounds[3]-bounds[1] > height:
+                    from .enhancements import font_for
+                    font = font_for(min(font_size, candidate),widget.get('style',{}))
+                    lines=str(text)[:240].split('\n')[:6]
+                    bounds=[font.getbbox(line or 'Ag') for line in lines]
+                    if max((max(font.getlength(line),box[2]-box[0]) for line,box in zip(lines,bounds)),default=0)>width or sum(box[3]-box[1] for box in bounds)+4*max(0,len(lines)-1)>height:
                         return False
                 return True
 

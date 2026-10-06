@@ -53,7 +53,7 @@ def validate_info(info):
 
 def validate_layout(layout, nested=False):
     """Normalize untrusted editor input, with strict bounds for rendering."""
-    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen", "swipe", "navigation", "notification_rules"}:
+    if not isinstance(layout, dict) or not {"background", "widgets"} <= set(layout) <= {"background", "widgets", "debug", "overlay", "theme", "pages", "page_name", "rotation", "device", "page_rules", "design", "fullscreen", "swipe", "navigation", "notification_rules", "page_schedule"}:
         raise ValueError("Ungueltiges Layout")
     if not isinstance(layout["background"], str) or not COLOR.fullmatch(layout["background"]):
         raise ValueError("Ungueltige Hintergrundfarbe")
@@ -90,6 +90,10 @@ def validate_layout(layout, nested=False):
         validate_page_rules(layout["page_rules"])
         if any(rule["page"]>len(result.get("pages",[])) for rule in layout["page_rules"]):raise ValueError("Zielseite existiert nicht")
         result["page_rules"]=copy.deepcopy(layout["page_rules"])
+    if 'page_schedule' in layout:
+        from .enhancements import validate_schedule
+        if nested:raise ValueError('Zeitplan nur auf der Hauptseite')
+        result['page_schedule']=validate_schedule(layout['page_schedule'],len(result.get('pages',[])))
     if 'notification_rules' in layout:
         from .automation import validate_notification_rules
         if nested:raise ValueError('Hinweisregeln nur auf der Hauptseite')
@@ -110,15 +114,15 @@ def validate_layout(layout, nested=False):
         result["theme"] = layout["theme"]
     keys = {"kind", "text", "entity_id", "x", "y", "width", "height", "size", "color"}
     for widget in widgets:
-        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden", "inherit_design", "role"}:
+        if not isinstance(widget, dict) or not keys <= set(widget) <= keys | {"source", "fps", "style", "value", "clock_format", "image", "fit", "group", "rules", "visible_when", "target", "icon", "line_width", "config", "locked", "hidden", "inherit_design", "role", "availability", "icon_states"}:
             raise ValueError("Ungueltiges Element")
-        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy", "slider", "player", "cost", "weather", "countdown", "door_history"):
+        if widget["kind"] not in ("text", "sensor", "button", "switch", "media", "image", "clock", "navigation", "icon", "line", "progress", "gauge", "chip", "chart", "energy", "slider", "player", "cost", "weather", "countdown", "door_history", "energy_day", "price", "ev_charge", "calendar"):
             raise ValueError("Unbekannter Elementtyp")
-        if not isinstance(widget["text"], str) or len(widget["text"]) > 80 or "\n" in widget["text"]:
-            raise ValueError("Beschriftung: maximal 80 Zeichen, eine Zeile")
+        if not isinstance(widget["text"], str) or len(widget["text"]) > 240 or len(widget["text"].splitlines()) > 6 or any(ord(c)<32 and c!= "\n" for c in widget["text"]):
+            raise ValueError("Beschriftung: maximal 240 Zeichen und sechs Zeilen")
         if not isinstance(widget["entity_id"], str):
             raise ValueError("Ungueltige Entitaet")
-        if widget["kind"] not in ("text", "media", "image", "clock", "navigation", "icon", "line", "energy", "door_history") and not ENTITY.fullmatch(widget["entity_id"]):
+        if widget["kind"] not in ("text", "media", "image", "clock", "navigation", "icon", "line", "energy", "door_history", "energy_day") and not ENTITY.fullmatch(widget["entity_id"]):
             raise ValueError("Bitte eine HA-Entitaet auswaehlen")
         domain = widget["entity_id"].split(".", 1)[0]
         if widget["kind"] == "button" and domain not in BUTTON_SERVICES:
@@ -145,6 +149,8 @@ def validate_layout(layout, nested=False):
         if "role" in widget and widget["role"] not in ("title","door_status","door_open"):raise ValueError("Ungueltige Klingelrolle")
         if widget.get("role")=="door_open" and widget["kind"]!="button":raise ValueError("Tueroeffner muss Button sein")
         if widget.get("role") in ("title","door_status") and widget["kind"]!="text":raise ValueError("Titel und Tuerstatus muessen Text sein")
+        from .enhancements import validate_widget_options
+        validate_widget_options(widget)
         normalized = dict(widget)
         if widget['kind']=='navigation':
             if type(widget.get('target')) is not int or not 0<=widget['target']<=3:raise ValueError('Ungueltige Zielseite')
@@ -200,10 +206,12 @@ def validate_layout(layout, nested=False):
         else:normalized.pop('line_width',None)
         if "style" in widget:
             style = widget["style"]
-            if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align", "auto_fit"}:
+            if not isinstance(style, dict) or not set(style) <= {"surface", "background", "radius", "align", "auto_fit", "valign", "font", "weight", "unit_size", "unit_color"}:
                 raise ValueError("Ungueltiger Elementstil")
             if type(style.get('auto_fit',False)) is not bool:
                 raise ValueError('Ungültige automatische Schriftanpassung')
+            from .enhancements import validate_style
+            validate_style(style)
             if "surface" in style and type(style["surface"]) is not bool:
                 raise ValueError("Kartenflaeche muss ein- oder ausgeschaltet sein")
             if "radius" in style and (type(style["radius"]) is not int or not 0 <= style["radius"] <= 32):
@@ -223,7 +231,7 @@ def validate_layout(layout, nested=False):
         else:
             normalized.pop("source", None)
             normalized.pop("fps", None)
-        if normalized["kind"] in ("text", "media", "image", "clock", "icon", "line", "energy", "door_history"):
+        if normalized["kind"] in ("text", "media", "image", "clock", "icon", "line", "energy", "door_history", "energy_day"):
             normalized["entity_id"] = ""
         result["widgets"].append(normalized)
     if sum(w["kind"] == "media" for w in result["widgets"]) > 1:
@@ -234,7 +242,7 @@ def validate_layout(layout, nested=False):
         result['overlay']=validate_layout(layout['overlay'])
     if not nested:
         from .pages import all_widgets
-        if sum(len(w.get('image','')) for w in all_widgets(result))>1100000:
+        if sum(len(w.get('image',''))+sum(len(item.get('image','')) for item in w.get('icon_states',[])) for w in all_widgets(result))>1100000:
             raise ValueError('Bilder im gesamten Layout: maximal ca. 800 KiB; kleinere Bilder verwenden')
     return result
 

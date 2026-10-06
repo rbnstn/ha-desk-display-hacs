@@ -1,0 +1,49 @@
+name: Demo and browser installer
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Copy published installation packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, time
+          repo=os.environ['GITHUB_REPOSITORY']
+          if os.environ['GITHUB_EVENT_NAME']=='release':
+              for _ in range(40):
+                  release=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/releases/latest']))
+                  if any(a['name']=='web-install-manifest.json' for a in release['assets']):break
+                  time.sleep(10)
+          releases=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/releases?per_page=30']))
+          for release in releases:
+              if release['draft'] or release['prerelease'] or not any(a['name']=='web-install-manifest.json' for a in release['assets']):continue
+              dest=pathlib.Path('site/firmware')/release['tag_name'];dest.mkdir(parents=True,exist_ok=True)
+              subprocess.run(['gh','release','download',release['tag_name'],'--repo',repo,'--pattern','*.bin','--pattern','web-install-manifest.json','--dir',str(dest)],check=True)
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment

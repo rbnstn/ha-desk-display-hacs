@@ -10,6 +10,39 @@
 
 *Diese Bilder stammen aus dem tatsächlichen Renderer mit Beispielwerten. Sie sind keine Fotos eines physischen Geräts. Das Projekt wird aktiv entwickelt; die Geräteunterstützung ist auf das E32R35T begrenzt.*
 
+
+## Neu in 0.31.0
+
+[Interaktive Demo](https://rbnstn.github.io/ha-desk-display-hacs/) · [Browserinstallation und Wiederherstellung](https://rbnstn.github.io/ha-desk-display-hacs/install.html)
+
+- **Einrichtungsassistent:** Verbindung prüfen, bis zu drei Sensoren auswählen, erste Seite als Entwurf erstellen. Bestehende Anzeigen werden erhalten.
+- **Vorlagen in HA:** Bis acht eigene Seiten oder Komponenten pro Benutzer zentral speichern. Browservorlagen werden übernommen, wenn der zentrale Speicher noch leer ist.
+- **Mehrere Displays:** Layout von einem anderen Display übernehmen und sämtliche verknüpften Entitäten neu zuordnen. Die Helligkeits- und Ruheinstellungen des Zielgeräts bleiben erhalten.
+- **Texte:** Bis sechs Zeilen und 240 Zeichen, Sans/Serif/Monospace, normal/fett, oben/mittig/unten, getrennte Schriftgröße und Farbe für Einheiten. Benutzerdefinierte Schriftoptionen verwenden mitgelieferte DejaVu-Schriften mit lateinischen, griechischen und kyrillischen Zeichen.
+- **Datenqualität:** Fehlende Werte anzeigen, ausblenden oder durch Text ersetzen. Sensoralter optional anzeigen und ab einem frei gewählten Alter markieren. Der Zeitstempel verwendet die letzte HA-Zustandsmeldung; das ist keine Garantie, dass das physische Gerät eine neue Messung geliefert hat.
+- **Neue Karten:** Tagesenergie mit Erzeugung, Verbrauch, Bezug und Einspeisung in kWh; Autarkie und Eigenverbrauch aus vorhandenen Prozent-Sensoren; Auto-Ladestand mit Ladeziel und Fortschrittsbalken; HA-Kalender für bis fünf Termine innerhalb von 1–14 Tagen.
+- **Strompreise:** Aktueller Preis pro kWh, günstigster Zeitraum und günstige Zeitfenster. Der Sensor muss auf die ausgewählte Währung pro kWh normiert sein. Zeitreihen kommen aus einem `prices`-Attribut: `[{"start":"2026-10-06T15:00:00+02:00","price":0.12}]`. Anbieter mit anderen Attributen benötigen einen HA-Template-Sensor.
+- **Zustandsicons:** Bis vier bedingte Icons für Icon- und Chip-Elemente; beispielsweise Fenster offen/geschlossen. Auswahl auch nach HA-Raum und Gerät.
+- **Touch und Hinweise:** Kamera antippen für eine 30 Sekunden große Ansicht mit Zurück-Button. Hinweise rechts am × schließen; optional links antippen, um einen ausdrücklich zugeordneten Button oder ein Script auszuführen. Hinweise wecken das Display ab konfigurierter Priorität, standardmäßig 2; 4 deaktiviert das Aufwecken.
+- **Seiten:** Zeitfenster nach HA-Ortszeit und Wochentagen, auch über Mitternacht. Seitenregeln wahlweise beim Zustandswechsel oder solange eine Bedingung gilt, z. B. `person.* = home` oder Anwesenheitssensor. Klingeln und vorübergehende Seiten haben Vorrang.
+- **Native Update-Entitäten:** Integrationsupdate mit Link zum Release, Installation weiter über HACS; Firmwareupdate direkt über die HA-Update-Entität mit Neustart- und Versionsprüfung.
+
+### Erste Installation im Browser
+
+1. [Installer](https://rbnstn.github.io/ha-desk-display-hacs/install.html) über HTTPS in Chrome oder Edge auf einem Computer öffnen.
+2. E32R35T über ein USB-Datenkabel anschließen, Release auswählen und **Verbinden und installieren** anklicken. Den richtigen seriellen Port auswählen.
+3. Nach der Installation WLAN und Geräteschlüssel am angezeigten Einrichtungszugangspunkt konfigurieren. Dann die Integration in HA mit IP-Adresse und Geräteschlüssel einrichten.
+
+Jedes neue Release enthält die OTA-Datei, einen vollständigen `*-factory.bin`-Download, Bootloader, Partitionstabelle, `boot_app0.bin`, SHA256-Dateien und `web-install-manifest.json`. Der Installer verwendet die einzelnen Teile mit den passenden Flash-Adressen. Die einfache `.bin` ohne `factory` bleibt die Datei für OTA; die Factory-Datei gehört nicht in den OTA-Uploader.
+
+### Wiederherstellung
+
+Bei einem fehlgeschlagenen Update im Installer ein vorheriges Release ab 0.31.0 auswählen. Ältere Releases haben noch kein Browserinstallationspaket. Falls die Verbindung scheitert, BOOT halten, USB verbinden und BOOT nach dem Verbindungsaufbau loslassen. Bei Bedarf **Erase device** wählen: WLAN, Schlüssel und Touchkalibrierung werden gelöscht. Anschließend erneut einrichten.
+
+Alternativ die Factory-Datei aus dem Release mit `esptool` an Adresse `0x0` schreiben. Die vollständig aufgefüllte Factory-Datei setzt auch WLAN/Schlüssel zurück. Layout und Vorlagen in HA bleiben gespeichert. Automatische Firmware-Rücksprünge nach einem fehlerhaften Start sind nicht implementiert; der dokumentierte USB-Weg funktioniert unabhängig von der laufenden Anwendung.
+
+Die Demo nutzt Beispielwerte und eine vereinfachte Browserdarstellung. Für einen Test des tatsächlichen Designers ohne Hardware: Projekt herunterladen, Pillow installieren und `python tools/preview.py` im Entwicklungsrepository starten.
+
 ## Was kann das Projekt?
 
 | Bereich | Funktionen |
@@ -101,12 +134,12 @@ Ohne Wallboxsensor erscheint kein Wallboxkreis. Ohne SOC-Sensor bleibt die Leist
 
 - **Integration:** Update in HACS herunterladen, Home Assistant neu starten und den Designer neu laden. Bei veralteten Feldern am Mac `⌘ + Shift + R`, unter Windows/Linux `Strg + F5` verwenden.
 - **Firmware:** Unter **Display → Firmware aktualisieren → Updates prüfen** installierte und verfügbare Versionen ansehen. Die passende E32R35T `.bin` vom [Release](https://github.com/rbnstn/ha-desk-display-hacs/releases) herunterladen, auswählen und installieren. WLAN-Updates setzen eine vorhandene Firmware ab 0.6.0 voraus. Bei älteren Versionen zuerst per USB aktualisieren.
-- Firmware 0.9.0 unterstützt WLAN-Einrichtung und Ruhemodus. Die Integration 0.30.0 ergänzt die Designerfunktionen auf der HA-Seite; dafür ist kein neuer Firmwarestand nötig.
+- Firmware 0.9.0 unterstützt WLAN-Einrichtung und Ruhemodus. Die Integration 0.31.0 ergänzt die Designerfunktionen auf der HA-Seite; dafür ist kein neuer Firmwarestand nötig.
 - Jeder veröffentlichte Integrationsrelease baut die Firmware automatisch und hängt `.bin`, SHA-256-Prüfsumme und Metadaten an. Die Firmwareversion kann bei mehreren Integrationsreleases gleich bleiben.
 
 ## Eigene Vorlagen, Meldungen und Sicherungen
 
-Eigene Vorlagen werden unter **Display → Vorlagen** pro HA-Benutzer in diesem Browser gespeichert, maximal acht. Für einen anderen Browser als Datei exportieren und importieren. Seitenvorlagen ergänzen eine neue Seite, Komponenten ergänzen die aktuelle Seite. Geräte- und WLAN-Schlüssel sind nicht Bestandteil des Exports. Sensor-IDs und eigene Bilder können enthalten sein.
+Eigene Vorlagen werden unter **Display → Vorlagen** pro HA-Benutzer zentral in Home Assistant gespeichert, maximal acht. Sie sind in anderen Browsern desselben Benutzers verfügbar. Für die Weitergabe als Datei exportieren und importieren. Seitenvorlagen ergänzen eine neue Seite, Komponenten ergänzen die aktuelle Seite. Geräte- und WLAN-Schlüssel sind nicht Bestandteil des Exports. Sensor-IDs und eigene Bilder können enthalten sein.
 
 Unter **Display → Hinweise & Meldungen** Bedingungen für Fenster, Waschmaschine oder Stromverbrauch anlegen. Die Meldung erscheint beim Wechsel von falsch zu wahr und wird nach der eingestellten Dauer ausgeblendet. Beim Start bereits erfüllte Regeln werden nicht erneut gemeldet. Klingeln hat Vorrang. Beispiele für HA-Automationen stehen in [Deutsch und Englisch](docs/AUTOMATIONS.md).
 

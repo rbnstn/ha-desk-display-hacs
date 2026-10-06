@@ -25,28 +25,37 @@ class FirmwareUpload(HomeAssistantView):
         if coordinator.firmware_updating:return self.json({'message':'Update läuft bereits'},status_code=409)
         try:payload=validate_firmware(bytes(data))
         except ValueError as error:return self.json({'message':str(error)},status_code=400)
-        marker=re.search(rb'desk_display_version:([0-9]+\.[0-9]+\.[0-9]+)',payload)
-        expected=marker.group(1).decode() if marker else None
-        coordinator.firmware_status={'phase':'transferring','expected':expected}
-        coordinator.firmware_updating=True
-        monitor_started=False
         try:
-            async with coordinator.io_lock:
-                info=await coordinator.client.info()
-                if info['id']!=coordinator.entry.unique_id:raise ValueError('Unter dieser Adresse antwortet ein anderes Display')
-                if not info.get('ota_update'):raise ValueError('Zuerst Firmware 0.6.0 per USB installieren')
-                await coordinator.client.update_firmware(payload)
-            coordinator.last_frame=None;coordinator.revision=None
-            coordinator.firmware_status={'phase':'restarting','expected':expected,'previous':info.get('version')}
-            coordinator.entry.async_create_background_task(hass,monitor_restart(coordinator,info,expected),'Desk Display firmware restart')
-            monitor_started=True
-            return self.json({'message':'Übertragung bestätigt. Neustart und installierte Version werden geprüft.','expected':expected})
-        except (ValueError,aiohttp.ClientError,TimeoutError):
-            coordinator.firmware_status={'phase':'failed','message':'Übertragung nicht bestätigt'}
-            return self.json({'message':'Update nicht bestätigt. Firmware und Verbindung prüfen; bei Abbruch gegebenenfalls per USB wiederherstellen.'},status_code=502)
-        finally:
-            if not monitor_started:coordinator.firmware_updating=False
+            expected=await install_payload(hass,coordinator,payload)
+            return self.json({'message':'Übertragung bestätigt. Neustart und Version werden geprüft.','expected':expected})
+        except (ValueError,aiohttp.ClientError,TimeoutError) as error:
+            return self.json({'message':str(error)},status_code=502)
 
+
+async def install_payload(hass,coordinator,payload):
+    if coordinator.firmware_updating:raise ValueError('Update läuft bereits')
+    payload=validate_firmware(payload)
+    marker=re.search(rb'desk_display_version:([0-9]+\.[0-9]+\.[0-9]+)',payload)
+    expected=marker.group(1).decode() if marker else None
+    coordinator.firmware_status={'phase':'transferring','expected':expected}
+    coordinator.firmware_updating=True
+    monitor_started=False
+    try:
+        async with coordinator.io_lock:
+            info=await coordinator.client.info()
+            if info['id']!=coordinator.entry.unique_id:raise ValueError('Unter dieser Adresse antwortet ein anderes Display')
+            if not info.get('ota_update'):raise ValueError('Zuerst Firmware 0.6.0 per USB installieren')
+            await coordinator.client.update_firmware(payload)
+        coordinator.last_frame=None;coordinator.revision=None
+        coordinator.firmware_status={'phase':'restarting','expected':expected,'previous':info.get('version')}
+        coordinator.entry.async_create_background_task(hass,monitor_restart(coordinator,info,expected),'Desk Display firmware restart')
+        monitor_started=True
+        return expected
+    except (ValueError,aiohttp.ClientError,TimeoutError):
+        coordinator.firmware_status={'phase':'failed','message':'Übertragung nicht bestätigt'}
+        raise ValueError('Update nicht bestätigt. Firmware und Verbindung prüfen; bei Abbruch per USB wiederherstellen.')
+    finally:
+        if not monitor_started:coordinator.firmware_updating=False
 
 
 async def monitor_restart(coordinator,before,expected):

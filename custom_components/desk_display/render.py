@@ -30,7 +30,7 @@ def render_image(layout, states, media=None):
         from .widgets import KINDS, tile as extended_tile
         if widget["kind"] in KINDS:
             tile=extended_tile(widget,states,layout.get("theme","material_dark"));image.paste(tile,(widget["x"],widget["y"]),tile);continue
-        if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock','navigation','icon','line'):
+        if layout.get("theme") in PALETTES or widget['kind'] in ('sensor','image','clock','navigation','icon','line') or '\n' in widget['text'] or any(k in widget.get('style',{}) for k in ('font','weight','valign')):
             styled = widget
             if layout.get('theme') not in PALETTES and widget['kind']!='navigation':
                 styled = {**widget, 'style':{**widget.get('style',{}),'surface':False,'radius':0}}
@@ -81,7 +81,7 @@ def render_image(layout, states, media=None):
                 draw.rectangle((x,max(y,bottom-18),x+widget['width']-1,bottom),fill='#663c00')
                 draw.text((x+3,max(y,bottom-16)),f'Stand vor {int(age)} s',font=ImageFont.load_default(size=12),fill='#ffffff')
     if states.get('__notification__') and 'overlay' not in layout:
-        draw=ImageDraw.Draw(image);draw.rectangle((0,0,479,31),fill='#6750a4');draw.text((8,7),states['__notification__'][:70],font=ImageFont.load_default(size=14),fill='#ffffff')
+        draw=ImageDraw.Draw(image);draw.rectangle((0,0,479,31),fill='#6750a4');draw.text((8,7),states['__notification__'][:54]+'  ×',font=ImageFont.load_default(size=14),fill='#ffffff')
     if 'overlay' in layout:
         image=Image.blend(image,Image.new('RGB',image.size,'black'),.6)
         modal=render_image(layout['overlay'],states,media)

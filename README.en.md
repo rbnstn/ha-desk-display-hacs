@@ -10,6 +10,40 @@
 
 *These images come from the actual renderer using sample values. They are not photographs of a physical device. The project is actively developed and currently targets the E32R35T only. The designer currently uses German labels; the instructions below include the corresponding labels.*
 
+## New in 0.31.0
+
+[Interactive demo](https://rbnstn.github.io/ha-desk-display-hacs/) · [Browser installation and recovery](https://rbnstn.github.io/ha-desk-display-hacs/install.html)
+
+- **Setup wizard:** Check the connection, choose up to three sensors and create a first page as a draft while preserving existing pages.
+- **HA templates:** Store up to eight personal pages/components per user centrally in Home Assistant. Existing browser templates migrate when central storage is empty.
+- **Multiple displays:** Copy a layout from another display and rebind its entities. The target display retains its brightness and sleep settings.
+- **Text:** Up to six lines and 240 characters; sans, serif or monospace; normal/bold; top/middle/bottom alignment; separate size and color for units. Bundled DejaVu font variants support Latin, Greek and Cyrillic characters.
+- **Data quality:** Show missing values, hide their widgets or show replacement text. Optionally show sensor age and mark stale readings at a chosen threshold. Age uses the last HA state report; it does not guarantee a fresh physical measurement.
+- **New cards:** Daily generation, consumption, import and export in kWh; self sufficiency/self consumption from existing percentage sensors; EV charge with target and progress bar; HA calendars with up to five events over 1–14 days.
+- **Electricity prices:** Current price per kWh, cheapest slot and cheap windows. Normalize the sensor to the selected currency per kWh. Supply a `prices` attribute: `[{"start":"2026-10-06T15:00:00+02:00","price":0.12}]`. Providers with different attributes require a HA template sensor.
+- **State icons:** Up to four conditional icons per icon/chip widget, for example an open/closed window. Entity selection grouped by HA area and device.
+- **Touch and notices:** Tap a camera for a 30-second enlarged view with a Back button. Dismiss notices with × on the right; optionally tap on the left to execute an explicitly configured button/script. Notices wake the display at the configured priority (default 2); 4 disables this.
+- **Pages:** Time windows using HA local time and weekdays, including overnight windows. Page rules can trigger on state change or hold a page while a condition matches, including person/presence entities. Doorbell and temporary pages take precedence.
+- **Native update entities:** Integration version notice links to the release; install it through HACS. Firmware updates install through the HA update entity and verify restart and version.
+
+### First installation in your browser
+
+1. Open the HTTPS [installer](https://rbnstn.github.io/ha-desk-display-hacs/install.html) in desktop Chrome or Edge.
+2. Connect an E32R35T with a USB data cable, choose a release, click **Connect and install**, and select the correct serial port.
+3. After installation, configure Wi-Fi and a device key using the access point shown on the display. Set up the integration in HA with the IP address and device key.
+
+New releases include the OTA binary, a complete `*-factory.bin`, bootloader, partition table, `boot_app0.bin`, SHA256 files and `web-install-manifest.json`. The installer writes individual parts at the proper flash offsets. The plain `.bin` is for OTA; do not upload the factory binary through OTA.
+
+### Recovery
+
+After a failed update, choose a previous release from 0.31.0 onward in the browser installer. Older releases have no web installation package. If connection fails, hold BOOT while connecting USB and release it after connecting. **Erase device** removes Wi-Fi, key and touch calibration; configure them again afterward.
+
+Alternatively write the release factory image at address `0x0` with `esptool`. Its padded image also resets Wi-Fi and the key. HA layouts and templates remain stored. Automatic firmware rollback after a bad boot is not implemented; USB recovery works independently of the running application.
+
+The interactive demo uses sample data and simplified browser rendering. To try the actual designer without hardware, download the development project, install Pillow and run `python tools/preview.py`.
+
+
+
 ## Features
 
 | Area | Capabilities |
@@ -101,12 +135,12 @@ The wallbox circle is hidden without a wallbox sensor. Power remains visible wit
 
 - **Integration:** download the HACS update, restart HA and reload the designer. If old fields remain visible, use `⌘ + Shift + R` on macOS or `Ctrl + F5` on Windows/Linux.
 - **Firmware:** under **Display → Firmware aktualisieren → Updates prüfen**, inspect installed and available versions. Download the matching E32R35T `.bin` from the [release](https://github.com/rbnstn/ha-desk-display-hacs/releases), select it and install. Wi-Fi updates require installed firmware 0.6.0 or later. Update older versions over USB first.
-- Firmware 0.9.0 supports device Wi-Fi setup and sleep mode. Integration 0.30.0 adds HA-side designer features and does not require a newer firmware version.
+- Firmware 0.9.0 supports device Wi-Fi setup and sleep mode. Integration 0.31.0 adds HA-side designer features and does not require a newer firmware version.
 - Publishing an integration release automatically builds firmware and attaches the `.bin`, SHA-256 checksum and metadata. Several integration releases may use the same firmware version.
 
 ## Personal templates, notifications and backups
 
-Under **Display → Vorlagen**, save up to eight personal templates per HA user in the current browser. Export/import JSON files to reuse them in another browser. A page template adds a new page; a component adds widgets to the current page. Exports exclude device and Wi-Fi keys but may include sensor IDs and personal images.
+Under **Display → Vorlagen**, save up to eight personal templates per HA user centrally in Home Assistant. They are available in other browsers signed in as the same user. Export/import JSON files for sharing. A page template adds a new page; a component adds widgets to the current page. Exports exclude device and Wi-Fi keys but may include sensor IDs and personal images.
 
 Use **Display → Hinweise & Meldungen** for window, appliance or power notifications. A message appears when a condition changes from false to true, then expires automatically. Already active conditions are not replayed on startup. Doorbell screens take priority. [Automation examples in German and English](docs/AUTOMATIONS.md).
 
@@ -132,3 +166,5 @@ Keep communication local and do not expose the display port to the internet. Tou
 CI checks Python tests, Chromium interactions, current HA contracts, firmware builds and HACS validation. Automated checks do not replace physical-device testing. Images are reproducible using `python tools/render_readme.py` in the development repository. Development: [ha-desk-display](https://github.com/rbnstn/ha-desk-display); HACS/firmware: [ha-desk-display-hacs](https://github.com/rbnstn/ha-desk-display-hacs).
 
 Inspired by [GeekMagic HACS](https://github.com/adrienbrault/geekmagic-hacs). This is an independent implementation and contains no copied GeekMagic code.
+
+

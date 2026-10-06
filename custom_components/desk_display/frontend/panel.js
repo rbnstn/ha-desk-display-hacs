@@ -45,6 +45,8 @@ export class DeskDisplayPanel extends HTMLElement {
     this.loaded = true;
     try {
       this.devices = await this._hass.callWS({type: 'desk_display/list'});
+      await this.loadTemplates();
+      try{this.entityGroups=await this._hass.callWS({type:'desk_display/entity_groups'});}catch{this.entityGroups=[];}
       this.layout = structuredClone(this.devices[this.selected]?.layout);
       this.loadDoorbell();
       this.recoveryDraft=this.recoverDraft();
@@ -368,15 +370,133 @@ export class DeskDisplayPanel extends HTMLElement {
     }
     this.recordEdit();this.draw();this.schedulePreview();
   }
+  async loadTemplates() {
+    try{
+      const remote=await this._hass.callWS({type:'desk_display/templates'});
+      if(!Array.isArray(remote))throw Error('Ungültige Vorlagenantwort');
+      const local=this.ownTemplates();this.centralTemplates=remote;
+      if(!remote.length&&local.length)await this.storeTemplates(local);
+    }catch{this.centralTemplates=null;}
+  }
+  async storeTemplates(items) {
+    const result=await this._hass.callWS({type:'desk_display/templates',items});
+    if(!Array.isArray(result))throw Error('Vorlagen konnten nicht zentral gespeichert werden');
+    this.centralTemplates=result;localStorage.setItem(this.templateKey(),JSON.stringify(result));
+  }
+  entityField(parent,label,value,onchange,domains=null) {
+    const picker=this.element('ha-entity-picker');picker.hass=this._hass;picker.label=label;picker.value=value;
+    if(domains)picker.includeDomains=domains;
+    picker.addEventListener('value-changed',event=>{onchange(event.detail.value??'');this.schedulePreview();});parent.append(picker);
+    const rows=(this.entityGroups??[]).filter(row=>!domains||domains.includes(row.entity_id.split('.')[0]));
+    if(rows.length){
+      const select=this.element('select',{'aria-label':label+' nach Raum / Gerät'});select.append(this.element('option',{value:''},'Nach Raum / Gerät auswählen'));
+      const groups=new Map();for(const row of rows){const key=row.area+' · '+row.device;if(!groups.has(key))groups.set(key,this.element('optgroup',{label:key}));const state=this._hass.states?.[row.entity_id];groups.get(key).append(this.element('option',{value:row.entity_id},state?.attributes?.friendly_name??row.entity_id));}
+      for(const [,group] of [...groups].sort(([a],[b])=>a.localeCompare(b)))select.append(group);
+      select.onchange=()=>{if(select.value){onchange(select.value);picker.value=select.value;this.schedulePreview();}};parent.append(select);
+    }
+  }
+  selectField(parent,label,value,choices,onchange) {
+    const wrapper=this.element('label',{},label),select=this.element('select',{'aria-label':label});
+    for(const [key,text] of choices)select.append(this.element('option',{value:key},text));select.value=value;
+    select.onchange=()=>{onchange(select.value);this.schedulePreview();};wrapper.append(select);parent.append(wrapper);
+  }
+  extraWidgetFields(parent,widget) {
+    if(['price','ev_charge','calendar'].includes(widget.kind))this.entityField(parent,widget.kind==='calendar'?'HA-Kalender':'HA-Sensor',widget.entity_id,v=>{widget.entity_id=v;this.draw();},widget.kind==='calendar'?['calendar']:['sensor']);
+    const style=widget.style??={};
+    if(['text','sensor','button','switch','clock'].includes(widget.kind)){
+      this.selectField(parent,'Vertikale Ausrichtung',style.valign??'middle',[['top','Oben'],['middle','Mittig'],['bottom','Unten']],v=>style.valign=v);
+      this.selectField(parent,'Schriftart',style.font??'sans',[['sans','Sans'],['serif','Serif'],['mono','Monospace']],v=>style.font=v);
+      this.selectField(parent,'Schriftstärke',style.weight??'normal',[['normal','Normal'],['bold','Fett']],v=>style.weight=v);
+      if(widget.kind==='sensor'){
+        this.field(parent,'Einheitengröße (leer = wie Wert)',style.unit_size??'',v=>{if(v==='')delete style.unit_size;else style.unit_size=Number(v);},{type:'number',min:8,max:48});
+        this.field(parent,'Einheitenfarbe',style.unit_color??widget.color,v=>style.unit_color=v,{type:'color'});
+      }
+    }
+    if(widget.entity_id){
+      this.entityField(parent,'Entität nach Raum / Gerät',widget.entity_id,v=>widget.entity_id=v);
+      const availability=widget.availability??={};
+      this.selectField(parent,'Bei fehlenden Daten',availability.mode??'show',[['show','Als nicht verfügbar anzeigen'],['hide','Ausblenden'],['replace','Ersatztext anzeigen']],v=>availability.mode=v);
+      this.field(parent,'Ersatztext',availability.text??'Nicht verfügbar',v=>availability.text=v,{maxlength:80});
+      this.field(parent,'Veraltet ab Sekunden (0 = aus)',availability.stale_after??0,v=>availability.stale_after=Number(v),{type:'number',min:0,max:604800});
+      const input=this.element('input',{type:'checkbox','aria-label':'Datenalter anzeigen'});input.checked=!!availability.show_age;input.onchange=()=>{availability.show_age=input.checked;this.schedulePreview();};const label=this.element('label');label.append(input,document.createTextNode('Datenalter anzeigen'));parent.append(label);
+    }
+    const config=widget.config??={};
+    if(widget.kind==='energy_day')for(const [key,label] of [['solar','Erzeugung heute'],['house','Verbrauch heute'],['export','Einspeisung heute'],['import','Bezug heute'],['autarky','Autarkie (%)'],['self_consumption','Eigenverbrauch (%)']])this.entityField(parent,label,config[key]??'',v=>config[key]=v,['sensor']);
+    if(widget.kind==='price'){
+      this.selectField(parent,'Währung',config.currency??'EUR',['EUR','USD','CHF','GBP'].map(v=>[v,v]),v=>config.currency=v);
+      this.field(parent,'Günstig bis Preis / kWh',config.cheap_below??.2,v=>config.cheap_below=Number(v),{type:'number',step:.001,min:-100,max:100});
+      parent.append(this.element('small',{},'Preissensor pro kWh. Für Zeitfenster das Attribut prices als Liste aus start und price bereitstellen.'));
+    }
+    if(widget.kind==='ev_charge'){
+      this.entityField(parent,'Ladeziel-Sensor (optional)',config.target_entity_id??'',v=>config.target_entity_id=v,['sensor','input_number']);
+      this.field(parent,'Festes Ladeziel (%)',config.target??80,v=>config.target=Number(v),{type:'number',min:0,max:100});
+    }
+    if(widget.kind==='calendar'){
+      this.field(parent,'Kalendertage',config.days??7,v=>config.days=Number(v),{type:'number',min:1,max:14});
+      this.field(parent,'Termine anzeigen',config.limit??3,v=>config.limit=Number(v),{type:'number',min:1,max:5});
+    }
+    if(['icon','chip'].includes(widget.kind)){
+      for(const [index,item] of (widget.icon_states??[]).entries()){
+        this.conditionFields(parent,item.when,widget.entity_id);
+        const picker=this.element('ha-icon-picker');picker.hass=this._hass;picker.label='Icon bei diesem Zustand';picker.value=item.icon;
+        picker.addEventListener('value-changed',async event=>{const temporary={};await this.updateIcon(temporary,event.detail.value,widget);if(temporary.image){item.icon=event.detail.value;item.image=temporary.image;this.schedulePreview();}});parent.append(picker);
+        const remove=this.element('button',{class:'secondary'},'Zustandsicon entfernen');remove.onclick=()=>{widget.icon_states.splice(index,1);this.draw();this.schedulePreview();};parent.append(remove);
+      }
+      const add=this.element('button',{class:'secondary'},'Zustandsicon hinzufügen');add.disabled=(widget.icon_states?.length??0)>=4;add.onclick=()=>{if(!widget.image){this.status('Zuerst ein normales Icon auswählen.');return;}(widget.icon_states??=[]).push({when:{entity_id:widget.entity_id||'',op:'eq',value:'on'},icon:widget.icon,image:widget.image});this.draw();};parent.append(add);
+    }
+  }
+  scheduleFields(parent) {
+    parent.append(this.element('h2',{},'Seiten nach Tageszeit'));
+    for(const [index,item] of (this.documentLayout().page_schedule??[]).entries()){
+      for(const [key,label] of [['start','Von'],['end','Bis']])this.field(parent,label,item[key],v=>item[key]=v,{type:'time'});
+      this.field(parent,'Zeitplan Zielseite (1–4)',item.page+1,v=>item.page=Number(v)-1,{type:'number',min:1,max:1+(this.documentLayout().pages?.length??0)});
+      for(const [day,label] of ['Mo','Di','Mi','Do','Fr','Sa','So'].entries()){
+        const input=this.element('input',{type:'checkbox','aria-label':'Zeitplan '+label});input.checked=item.days.includes(day);input.onchange=()=>{item.days=input.checked?[...item.days,day]:item.days.filter(d=>d!==day);this.schedulePreview();};const wrapper=this.element('label');wrapper.append(input,document.createTextNode(label));parent.append(wrapper);
+      }
+      const remove=this.element('button',{class:'secondary'},'Zeitfenster entfernen');remove.onclick=()=>{this.documentLayout().page_schedule.splice(index,1);this.draw();this.schedulePreview();};parent.append(remove);
+    }
+    const add=this.element('button',{class:'secondary'},'Zeitfenster hinzufügen');add.disabled=(this.documentLayout().page_schedule?.length??0)>=8;add.onclick=()=>{(this.documentLayout().page_schedule??=[]).push({start:'22:00',end:'07:00',page:0,days:[0,1,2,3,4,5,6]});this.draw();};parent.append(add,this.element('small',{},'HA-Ortszeit. Das erste passende Fenster hält die Seite sichtbar. Ereignisse und Klingeln haben vorübergehend Vorrang. Anwesenheit und Abwesenheit lassen sich darunter mit person.* oder binary_sensor.* als Seitenregel einrichten.'));
+  }
+  copyDisplayDialog() {
+    const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Layout zwischen Displays kopieren'});dialog.append(this.element('h2',{},'Layout übernehmen und Sensoren zuordnen'));
+    const source=this.element('select',{'aria-label':'Quelldisplay'});for(const [index,device] of this.devices.entries())if(index!==this.selected)source.append(this.element('option',{value:index},device.name));dialog.append(source);
+    const fields=this.element('div');dialog.append(fields);let draft,mapping;
+    const load=()=>{draft=structuredClone(this.devices[Number(source.value)]?.layout);mapping={};fields.replaceChildren();if(!draft)return;
+      const entities=new Set();const collect=value=>{if(typeof value==='string'&&/^[a-z_][a-z0-9_]*\.[a-z0-9_]+$/.test(value))entities.add(value);else if(value&&typeof value==='object')Object.values(value).forEach(collect);};collect(draft);
+      for(const entity of entities){mapping[entity]=entity;this.entityField(fields,entity,entity,v=>mapping[entity]=v);}
+    };source.onchange=load;load();
+    const use=this.element('button',{},'Als Entwurf übernehmen');use.onclick=async()=>{try{
+      if(!draft)throw Error('Ein zweites Display benötigt');
+      const replace=value=>typeof value==='string'?(mapping[value]??value):Array.isArray(value)?value.map(replace):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).map(([k,v])=>[k,replace(v)])):value;
+      const layout=replace(draft);if(this.documentLayout().device)layout.device=structuredClone(this.documentLayout().device);else delete layout.device;
+      await this._hass.callWS({type:'desk_display/preview',layout});this.rootLayout=this.layout=layout;this.pageIndex=0;this.widgetIndex=0;this.selection=new Set([0]);dialog.close();dialog.remove();this.draw();this.preview();this.status('Layout übernommen. Prüfen und speichern.');
+    }catch(error){this.status(error.message??error);}};
+    const close=this.element('button',{class:'secondary'},'Abbrechen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(use,close);this.shadowRoot.append(dialog);dialog.showModal();
+  }
+  setupWizard() {
+    const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Einrichtungsassistent'});dialog.append(this.element('h2',{},'In drei Schritten zur ersten Anzeige'));
+    const body=this.element('div');dialog.append(body);let step=0;const chosen=[];
+    const draw=()=>{body.replaceChildren();if(step===0){body.append(this.element('h3',{},'1 · Display verbinden'),this.element('p',{},this.devices[this.selected]?.connected?'Display verbunden. Firmware und WLAN sind erreichbar.':'Display zuerst unter Einstellungen → Geräte & Dienste hinzufügen. IP-Adresse und Geräteschlüssel stehen im WLAN-Einrichtungsdialog des Displays.'),this.element('a',{href:'https://rbnstn.github.io/ha-desk-display-hacs/install.html',target:'_blank',rel:'noopener'},'Firmware im Browser installieren'));
+    }else if(step===1){body.append(this.element('h3',{},'2 · Bis zu drei Sensoren auswählen'));for(let i=0;i<3;i++)this.entityField(body,'Sensor '+(i+1),chosen[i]??'',v=>chosen[i]=v,['sensor']);
+    }else{body.append(this.element('h3',{},'3 · Erste Seite erstellen'),this.element('p',{},'Die gewählten Sensoren werden als Entwurf angelegt. Anschließend prüfen und mit Speichern ans Display übertragen. Bestehende Seiten bleiben erhalten.'));}};
+    const next=this.element('button',{},'Weiter');next.onclick=()=>{if(!this.devices.length){this.status('Zuerst Display hinzufügen.');return;}if(step<2){step++;next.textContent=step===2?'Seite erstellen':'Weiter';draw();return;}
+      const widgets=chosen.filter(Boolean).map((entity,index)=>({kind:'sensor',text:(this._hass.states?.[entity]?.attributes?.friendly_name??entity).slice(0,80),entity_id:entity,x:16,y:16+index*82,width:448,height:72,size:28,color:'#e6e0e9',style:{surface:true,radius:16,auto_fit:true},value:{auto_power:true,decimal_separator:','}}));
+      if(!widgets.length){this.status('Mindestens einen Sensor wählen.');return;}
+      const root=this.documentLayout();if(root.widgets.length){if((root.pages?.length??0)>=3){this.status('Vier Seiten sind bereits vorhanden.');return;}(root.pages??=[]).push({background:'#14121a',theme:'material_dark',page_name:'Erste Anzeige',widgets});this.selectPage(root.pages.length);}else{Object.assign(this.layout,{background:'#14121a',theme:'material_dark',widgets});this.draw();this.preview();}
+      dialog.close();dialog.remove();this.status('Erste Anzeige als Entwurf erstellt. Zum Übertragen speichern.');};
+    const close=this.element('button',{class:'secondary'},'Schließen');close.onclick=()=>{dialog.close();dialog.remove();};dialog.append(next,close);this.shadowRoot.append(dialog);dialog.showModal();draw();
+  }
+
   templateKey() {return `desk-display-templates:${this._hass?.user?.id??'local'}`;}
   ownTemplates() {
+    if(this.centralTemplates)return structuredClone(this.centralTemplates);
     try {const items=JSON.parse(localStorage.getItem(this.templateKey())??'[]');return Array.isArray(items)?items.filter(t=>t&&typeof t.name==='string'&&typeof t.id==='string'&&t.data&&['desk-display-page','desk-display-components'].includes(t.data.format)).slice(0,8):[];}catch{return [];}
   }
   saveOwnTemplate(components=false) {
     const dialog=this.element('dialog',{class:'add-dialog','aria-label':'Eigene Vorlage speichern'});
     const name=this.element('input',{'aria-label':'Vorlagenname',maxlength:40,value:components?'Meine Komponente':'Meine Seite'});
     const save=this.element('button',{},'Vorlage speichern');
-    save.onclick=()=>{
+    save.onclick=async()=>{
       try {
         if(!name.value.trim())throw new Error('Bitte einen Namen eingeben.');
         const items=this.ownTemplates();if(items.length>=8)throw new Error('Maximal acht Vorlagen. Bitte zuerst eine löschen.');
@@ -384,7 +504,7 @@ export class DeskDisplayPanel extends HTMLElement {
         const data=components?{format:'desk-display-components',version:1,widgets:structuredClone(this.selectedWidgets())}:{format:'desk-display-page',version:1,page:{background:page.background,theme:page.theme??'classic',widgets:structuredClone(page.widgets)}};
         items.push({id:Date.now().toString(36),name:name.value.trim(),data});const encoded=JSON.stringify(items);
         if(encoded.length>1500000)throw new Error('Vorlagen sind zu groß. Bitte als Datei exportieren.');
-        localStorage.setItem(this.templateKey(),encoded);dialog.close();dialog.remove();this.draw();this.status('Vorlage in diesem Browser gespeichert. Für andere Geräte als Datei exportieren.');
+        await this.storeTemplates(items);dialog.close();dialog.remove();this.draw();this.status('Vorlage zentral in Home Assistant gespeichert.');
       }catch(error){this.status(error.message??String(error));}
     };
     const cancel=this.element('button',{class:'secondary'},'Abbrechen');cancel.onclick=()=>{dialog.close();dialog.remove();};
@@ -451,7 +571,7 @@ export class DeskDisplayPanel extends HTMLElement {
   documentLayout() {return this.pageIndex?this.rootLayout:this.layout;}
   editState(layout=this.documentLayout(),doorbell=this.doorbell) {
     return JSON.stringify({layout,doorbell},(key,value)=>
-      ['style','value'].includes(key) && value && Object.keys(value).length===0 ? undefined : value);
+      ['style','value','config','availability'].includes(key) && value && Object.keys(value).length===0 ? undefined : value);
   }
   updateSaveState() {
     for(const [label,disabled] of [['Rückgängig',!this.historyIndex],['Wiederholen',this.historyIndex>=((this.history?.length??1)-1)]]) {
@@ -490,10 +610,10 @@ export class DeskDisplayPanel extends HTMLElement {
     group.ontoggle=()=>this.groupsOpen[key]=group.open;
   }
   addWidget(kind) {
-    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player','cost','weather','countdown','door_history'].includes(kind))return;
+    if(this.overlayPreview || this.layout.widgets.length>=10 || !['text','sensor','button','switch','media','image','clock','icon','line','progress','gauge','chip','chart','energy','slider','player','cost','weather','countdown','door_history','energy_day','price','ev_charge','calendar'].includes(kind))return;
     if(kind==='media' && this.layout.widgets.some(w=>w.kind==='media'))return;
-    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung',cost:'Energiekosten',weather:'Wetter',countdown:'Countdown',door_history:'Klingelverlauf'};
-    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,224],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72],door_history:[320,224]};
+    const names={text:'Neuer Text',sensor:'HA-Wert',button:'Button',switch:'Switch',media:'Video',image:'Bild',clock:'Uhrzeit',icon:'Icon',line:'Trennlinie',progress:'Fortschritt',gauge:'Ringanzeige',chip:'Status',chart:'Verlauf',energy:'Energiefluss',slider:'Slider',player:'Mediensteuerung',cost:'Energiekosten',weather:'Wetter',countdown:'Countdown',door_history:'Klingelverlauf',energy_day:'Energie heute',price:'Strompreis',ev_charge:'Auto laden',calendar:'Termine'};
+    const sizes={text:[200,48],sensor:[220,48],button:[180,56],switch:[180,56],media:[190,160],image:[120,100],clock:[120,48],icon:[48,48],line:[240,8],progress:[200,64],gauge:[120,120],chip:[160,40],chart:[240,120],energy:[320,224],slider:[240,72],player:[280,144],cost:[220,64],weather:[280,128],countdown:[200,72],door_history:[320,224],energy_day:[448,240],price:[320,160],ev_charge:[240,128],calendar:[448,224]};
     let [width,height]=sizes[kind].map(value=>Math.round(value/8)*8);
     if(kind==='media' && !this.devices[this.selected].jpeg_regions){width=160;height=120;}
     const bottom=(this.documentLayout().pages?.length??0) && this.documentLayout().navigation!==false?276:320;
@@ -514,14 +634,14 @@ export class DeskDisplayPanel extends HTMLElement {
     if(kind==='icon')this.updateIcon(widget,'mdi:home');
     this.status('Element hinzugefügt. Inhalt konfigurieren und anschließend speichern.');
   }
-  async updateIcon(widget,name) {
+  async updateIcon(widget,name,owner=widget) {
     if(!name || !/^[a-z0-9_-]+:[a-z0-9_-]+$/.test(name))return;
     this.iconRequests??=new WeakMap();const token={};this.iconRequests.set(widget,token);
     const icon=this.element('ha-icon');icon.icon=name;icon.hidden=true;this.shadowRoot.append(icon);
     try {
       let svg;
       for(let attempt=0;attempt<40;attempt++) {
-        if(this.iconRequests.get(widget)!==token || !this.layout.widgets.includes(widget))return;
+        if(this.iconRequests.get(widget)!==token || !this.layout.widgets.includes(owner))return;
         svg=icon.shadowRoot?.querySelector('ha-svg-icon');
         if(svg?.path)break;
         await new Promise(resolve=>setTimeout(resolve,100));
@@ -543,7 +663,7 @@ export class DeskDisplayPanel extends HTMLElement {
     const dialog=this.element('dialog',{class:'add-dialog','aria-labelledby':'add-heading'});
     dialog.append(this.element('h2',{id:'add-heading'},'Was möchtest du hinzufügen?'));
     const grid=this.element('div',{class:'type-grid'});
-    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Netz, Batteriestand und optionale Wallbox'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin'],['door_history','Klingelverlauf','Letzte Klingelereignisse mit optionalen Bildern']];
+    const types=[['text','Text','Überschrift oder Beschriftung'],['sensor','HA-Wert','Messwert aus Home Assistant'],['button','Button','HA-Aktion auslösen'],['switch','Switch','Gerät ein- und ausschalten'],['media','Video / Livestream','Kamera oder Medienquelle'],['image','Bild','Eigenes Bild hochladen'],['clock','Uhrzeit / Datum','Zeit aus Home Assistant'],['icon','Icon','Home-Assistant-Icon auswählen'],['line','Trennlinie','Bereiche optisch trennen'],['progress','Fortschritt','Wert als Balken'],['gauge','Ringanzeige','Wert als Ring'],['chip','Status-Chip','Kompakter Gerätestatus'],['chart','Verlauf','Messwerte aus HA-Historie'],['energy','Energiefluss','Solar, Haus, Netz, Batteriestand und optionale Wallbox'],['slider','Slider','Licht, Lautstärke oder Zahlenwert'],['player','Mediensteuerung','Titel, Cover und Wiedergabe'],['cost','Energiekosten','kWh × Preis oder momentane Kostenrate'],['weather','Wetter','Temperatur, Wetterzeichen und Vorhersage'],['countdown','Timer / Countdown','HA-Timer, Restzeit oder Zieltermin'],['door_history','Klingelverlauf','Letzte Klingelereignisse mit optionalen Bildern'],['energy_day','Tagesenergie','kWh, Autarkie und Eigenverbrauch'],['price','Strompreis','Aktueller Preis und günstige Zeitfenster'],['ev_charge','Auto laden','Ladestand und Ladeziel'],['calendar','Kalender','Familie, Schule und Müllabfuhr']];
     const close=()=>{dialog.close();dialog.remove();this.shadowRoot.querySelector('#add-element')?.focus();};
     for(const [kind,name,description] of types){
       const choice=this.element('button',{class:'type-choice','aria-label':`${name} hinzufügen`});
@@ -869,7 +989,7 @@ export class DeskDisplayPanel extends HTMLElement {
     `));
     const main = this.element('main');
     const header=this.element('header',{class:'workspace-header'});
-    header.append(this.element('h1',{},'Desk Display'));main.append(header);
+    header.append(this.element('h1',{},'Desk Display'));const wizard=this.element('button',{class:'secondary'},'Einrichtungsassistent');wizard.onclick=()=>this.setupWizard();header.append(wizard);main.append(header);
     this.shadowRoot.append(main);
     if (!this.devices.length) {
       main.append(this.element('section', {}, 'Noch kein Display eingerichtet. Füge Desk Display unter Einstellungen → Geräte & Dienste hinzu.'));
@@ -1047,13 +1167,17 @@ export class DeskDisplayPanel extends HTMLElement {
     displayPanel.append(this.element('small',{},'Einmal Firmware 0.6.0 per USB installieren, danach sind Updates hier über WLAN möglich. Die E32R35T .bin-Datei aus dem öffentlichen Release auswählen (keine bootloader.bin oder partitions.bin). Das Gerät startet nach erfolgreichem Update neu; HA-Schlüssel bleiben im Browser verborgen.'));
     const updateCheck=this.element('button',{class:'secondary'},'Updates prüfen');updateCheck.onclick=()=>this.checkUpdates();displayPanel.append(updateCheck,this.element('div',{id:'updates-status',role:'status'}));
     this.wrapFields(displayPanel,firmwareStart,'firmware','Firmware aktualisieren');
+    const copyDisplay=this.element('button',{class:'secondary'},'Layout von anderem Display übernehmen');copyDisplay.onclick=()=>this.copyDisplayDialog();displayPanel.append(copyDisplay);
+    const installer=this.element('a',{href:'https://rbnstn.github.io/ha-desk-display-hacs/install.html',target:'_blank',rel:'noopener'},'Browserinstallation und Wiederherstellung');displayPanel.append(installer);
+    this.field(displayPanel,'Hinweise wecken ab Priorität (4 = nie)',deviceSettings.notice_wake_priority??2,value=>setDevice('notice_wake_priority',Number(value)),{type:'number',min:0,max:4});
     const pagesPanel=this.element('div',{'data-pane':'pages',role:'tabpanel'});
+    this.scheduleFields(pagesPanel);
     pagesPanel.append(this.element('h2',{},'Seiten & Wechsel')); 
     this.field(pagesPanel,'Seitenname',this.layout.page_name??'Übersicht',value=>this.layout.page_name=value,{maxlength:20});
     this.field(pagesPanel,'Automatischer Seitenwechsel (0 = aus, Sekunden)',this.documentLayout().rotation??0,value=>this.documentLayout().rotation=Number(value),{type:'number',min:0,max:300});
     const addPage=this.element('button',{class:'secondary'},'Seite hinzufügen');addPage.disabled=(this.documentLayout().pages?.length??0)>=3;addPage.onclick=()=>this.addPage();pagesPanel.append(addPage);
     const removePage=this.element('button',{class:'secondary'},'Diese Seite entfernen');removePage.disabled=!this.pageIndex;
-    removePage.onclick=()=>{const root=this.documentLayout(),removed=this.pageIndex;root.pages.splice(removed-1,1);root.page_rules=(root.page_rules??[]).filter(rule=>rule.page!==removed).map(rule=>({...rule,page:rule.page>removed?rule.page-1:rule.page}));this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
+    removePage.onclick=()=>{const root=this.documentLayout(),removed=this.pageIndex;root.pages.splice(removed-1,1);root.page_schedule=(root.page_schedule??[]).filter(rule=>rule.page!==removed).map(rule=>({...rule,page:rule.page>removed?rule.page-1:rule.page}));root.page_rules=(root.page_rules??[]).filter(rule=>rule.page!==removed).map(rule=>({...rule,page:rule.page>removed?rule.page-1:rule.page}));this.selectPage(0);};pagesPanel.append(removePage,this.element('small',{},'Bis vier Seiten. Bei mehreren Seiten sind die unteren 44 Pixel für Touch-Navigation und Status reserviert. Wechsel ab 15 Sekunden; Klingel-Overlay pausiert den Wechsel.'));
     pagesPanel.append(this.element('h2',{},'Seiten bei HA-Ereignissen anzeigen'));
     for(const [flag,title] of [['swipe','Wischen auf freier Fläche zum Seitenwechsel (Firmware 0.8.0)'],['navigation','Seitennavigation unten anzeigen']]){const input=this.element('input',{type:'checkbox','aria-label':title});input.checked=this.documentLayout()[flag]??(flag==='navigation');input.onchange=()=>{this.documentLayout()[flag]=input.checked;this.draw();this.schedulePreview();};const label=this.element('label');label.append(input,document.createTextNode(title));pagesPanel.append(label);}
     const rules=this.documentLayout().page_rules??[];
@@ -1063,6 +1187,7 @@ export class DeskDisplayPanel extends HTMLElement {
       [this.documentLayout(),...(this.documentLayout().pages??[])].forEach((page,i)=>target.append(this.element('option',{value:i},page.page_name??'Übersicht')));
       target.value=rule.page;target.onchange=()=>{rule.page=Number(target.value);this.schedulePreview();};card.append(target);
       this.field(card,'Anzeigedauer (Sekunden)',rule.duration,v=>rule.duration=Number(v),{type:'number',min:5,max:300});
+      this.selectField(card,'Seitenregel Verhalten',rule.mode??'event',[['event','Beim Zustandswechsel vorübergehend'],['while','Solange Bedingung erfüllt ist']],v=>rule.mode=v);
       const remove=this.element('button',{class:'secondary'},'Seitenregel entfernen');remove.onclick=()=>{rules.splice(index,1);this.draw();this.schedulePreview();};card.append(remove);pagesPanel.append(card);
     }
     const pageRule=this.element('button',{class:'secondary'},'Seitenregel hinzufügen');pageRule.disabled=rules.length>=8;
@@ -1074,7 +1199,7 @@ export class DeskDisplayPanel extends HTMLElement {
       this.field(card,'Hinweistext',rule.message,v=>rule.message=v,{maxlength:160});
       this.field(card,'Hinweis anzeigen (Sekunden)',rule.duration,v=>rule.duration=Number(v),{type:'number',min:5,max:300});
       this.field(card,'Priorität (0 bis 3)',rule.priority,v=>rule.priority=Number(v),{type:'number',min:0,max:3});
-      const remove=this.element('button',{class:'secondary'},'Hinweisregel entfernen');remove.onclick=()=>{notificationRules.splice(index,1);this.draw();this.schedulePreview();};card.append(remove);displayPanel.append(card);
+      const remove=this.element('button',{class:'secondary'},'Hinweisregel entfernen');remove.onclick=()=>{notificationRules.splice(index,1);this.draw();this.schedulePreview();};this.entityField(card,'Aktion beim Tippen (optional)',rule.action_entity_id??'',value=>rule.action_entity_id=value,['button','input_button','script']);card.append(remove);displayPanel.append(card);
     }
     const addNotification=this.element('button',{class:'secondary'},'Hinweisregel hinzufügen');addNotification.disabled=notificationRules.length>=8;
     addNotification.onclick=()=>{(this.documentLayout().notification_rules??=[]).push({when:{entity_id:'',op:'eq',value:'on'},message:'Fenster geöffnet',duration:15,priority:0});this.draw();};displayPanel.append(addNotification,this.element('small',{},'Hinweise erscheinen beim Wechsel von nicht erfüllt zu erfüllt, verschwinden automatisch und werden beim Start nicht erneut ausgelöst. Für Waschmaschine, Fenster oder Stromverbrauch. Klingeln hat Vorrang.'));
@@ -1090,9 +1215,9 @@ export class DeskDisplayPanel extends HTMLElement {
       const row=this.element('div',{class:'rule-card'});row.append(this.element('strong',{},item.name));
       const use=this.element('button',{class:'secondary'},'Vorlage einsetzen');use.onclick=()=>this.useOwnTemplate(item);
       const download=this.element('button',{class:'secondary'},'Vorlage exportieren');download.onclick=()=>this.downloadTemplate(item);
-      const remove=this.element('button',{class:'secondary'},'Vorlage löschen');remove.onclick=()=>{localStorage.setItem(this.templateKey(),JSON.stringify(this.ownTemplates().filter(t=>t.id!==item.id)));this.draw();};row.append(use,download,remove);displayPanel.append(row);
+      const remove=this.element('button',{class:'secondary'},'Vorlage löschen');remove.onclick=async()=>{try{await this.storeTemplates(this.ownTemplates().filter(t=>t.id!==item.id));this.draw();}catch(error){this.status(error.message??error);}};row.append(use,download,remove);displayPanel.append(row);
     }
-    displayPanel.append(this.element('small',{},'Eigene Vorlagen sind pro HA-Benutzer in diesem Browser gespeichert. Seitenvorlagen ergänzen eine neue Seite; Komponenten ergänzen die aktuelle Seite. Exportdateien können auf anderen Geräten importiert werden.'));
+    displayPanel.append(this.element('small',{},'Eigene Vorlagen sind pro HA-Benutzer zentral in Home Assistant gespeichert. Alte Browservorlagen werden beim ersten Laden übernommen, wenn noch keine zentralen Vorlagen existieren. Seitenvorlagen ergänzen eine neue Seite; Komponenten ergänzen die aktuelle Seite. Exportdateien können auf anderen Geräten importiert werden.'));
     this.wrapFields(displayPanel,templatesStart,'templates','Vorlagen');
     const filesStart=displayPanel.childNodes.length;
     const exportButton=this.element('button',{class:'secondary'},'Layout exportieren');exportButton.onclick=()=>this.exportDesign();displayPanel.append(exportButton);
@@ -1144,20 +1269,20 @@ export class DeskDisplayPanel extends HTMLElement {
       const contentStart=settings.childNodes.length;
 
       const kind = this.element('select', {'aria-label':'Elementtyp'});
-      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung'],['cost','Energiekosten'],['weather','Wetter'],['countdown','Timer / Countdown'],['door_history','Klingelverlauf']]) {
+      for (const [value,label] of [['text','Text'],['sensor','HA-Wert'],['button','Button'],['switch','Switch'],['media','Video / Livestream'],['image','Bild'],['clock','Uhrzeit / Datum'],['icon','Icon'],['line','Trennlinie'],['progress','Fortschritt'],['gauge','Ringanzeige'],['chip','Status-Chip'],['chart','Verlauf'],['energy','Energiefluss'],['slider','Slider'],['player','Mediensteuerung'],['cost','Energiekosten'],['weather','Wetter'],['countdown','Timer / Countdown'],['door_history','Klingelverlauf'],['energy_day','Tagesenergie'],['price','Strompreis'],['ev_charge','Auto laden'],['calendar','Kalender']]) {
         const option=this.element('option',{value},label);
         option.disabled=value==='media' && this.layout.widgets.some(w=>w!==widget && w.kind==='media');kind.append(option);
       }
       kind.value = widget.kind;
       kind.onchange = () => {
-        widget.kind = kind.value;delete widget.config;delete widget.role;
-        if (widget.text==='Neuer Text') widget.text=({image:'Bild',clock:'Uhrzeit',media:'Video',sensor:'HA-Wert',button:'Button',switch:'Switch',text:'Neuer Text'})[widget.kind];
+        widget.kind = kind.value;delete widget.config;delete widget.role;delete widget.icon_states;
+        if (widget.text==='Neuer Text') widget.text=({image:'Bild',clock:'Uhrzeit',media:'Video',sensor:'HA-Wert',button:'Button',switch:'Switch',text:'Neuer Text'})[widget.kind]??'Übersicht';
         if (widget.kind!=='sensor') delete widget.value;
         if (widget.kind!=='clock') delete widget.clock_format;
         if (!['image','icon','chip'].includes(widget.kind)) {delete widget.image;delete widget.fit;}
         if(!['icon','chip'].includes(widget.kind))delete widget.icon;
         if(widget.kind!=='line')delete widget.line_width;
-        if (['text','image','clock','icon','line'].includes(widget.kind)) widget.entity_id='';
+        if (['text','image','clock','icon','line','energy_day'].includes(widget.kind)) widget.entity_id='';
         if (widget.kind === 'media') {
           widget.source = widget.entity_id.startsWith('camera.') ? widget.entity_id : (widget.source ?? '');
           widget.width = Math.min(widget.width,160); widget.height = Math.min(Math.max(widget.height,90),120);
@@ -1174,7 +1299,7 @@ export class DeskDisplayPanel extends HTMLElement {
       if(this.isOverlayDesigner && ['text','button'].includes(widget.kind)) {
         const role=this.element('select',{'aria-label':'Klingelrolle'});for(const [value,label] of [['','Zusätzliches Element'],...(widget.kind==='button'?[['door_open','Türöffner']]:[['title','Titel'],['door_status','Türstatus']])])role.append(this.element('option',{value},label));role.value=widget.role??'';role.onchange=()=>{if(role.value)widget.role=role.value;else delete widget.role;this.schedulePreview();};settings.append(role);
       }
-      this.field(settings, 'Beschriftung', widget.text, value => widget.text = value, {maxlength:80});
+      const textLabel=this.element('label',{},'Beschriftung');const textArea=this.element('textarea',{'aria-label':'Beschriftung',maxlength:240,rows:3});textArea.value=widget.text;textArea.oninput=()=>{widget.text=textArea.value;this.schedulePreview();};textLabel.append(textArea);settings.append(textLabel);
       if(widget.kind==='energy') {
         const config=widget.config??={};
         for(const [role,label] of [['solar','Solarleistung'],['house','Hausverbrauch'],['battery','Batterieleistung'],['grid','Netzleistung'],['battery_soc','Batteriestand (optional, %)'],['wallbox','Wallbox Leistung (optional)'],['car_soc','Auto Ladestand (optional, %)'],['car_target','Auto Ladeziel (optional, %)'],['car_remaining','Auto Restladezeit (optional, min / h / s)']]) {
@@ -1351,7 +1476,7 @@ export class DeskDisplayPanel extends HTMLElement {
       }
 
       const inherit=this.element('input',{type:'checkbox'});inherit.checked=widget.inherit_design??true;inherit.onchange=()=>{widget.inherit_design=inherit.checked;this.schedulePreview();};const inheritLabel=this.element('label');inheritLabel.append(inherit,document.createTextNode('Globales Design übernehmen'));settings.append(inheritLabel);
-      this.field(settings,'Schriftgröße',widget.size,value=>widget.size=Number(value),{type:'number',min:12,max:64,step:1});
+      this.field(settings,'Schriftgröße',widget.size,value=>{widget.size=Number(value);widget.inherit_design=false;},{type:'number',min:12,max:64,step:1});
       this.field(settings,'Textfarbe',widget.color,value=>widget.color=value,{type:'color'});
       if (this.layout.theme?.startsWith('material_')) {
         const style = widget.style ??= {};
@@ -1374,6 +1499,7 @@ export class DeskDisplayPanel extends HTMLElement {
         const autoFit=this.element('input',{type:'checkbox','aria-label':'Schrift automatisch anpassen'});autoFit.checked=!!style.auto_fit;autoFit.onchange=()=>{style.auto_fit=autoFit.checked;this.schedulePreview();};const autoLabel=this.element('label');autoLabel.append(autoFit,document.createTextNode('Schrift automatisch anpassen'));settings.append(autoLabel,this.element('small',{},'Passt wechselnde Werte bis zur eingestellten Schriftgröße an. Mindestgröße: 12 px.'));
         const fit=this.element('button',{class:'secondary'},'Schrift passend verkleinern');fit.onclick=()=>this.fitText();settings.append(fit);
       }
+      this.extraWidgetFields(settings,widget);
       this.wrapFields(settings,appearanceStart,'appearance','Aussehen');
     }
     widgetPanel.append(...Array.from(settings.childNodes).filter(node=>node!==displayPanel));

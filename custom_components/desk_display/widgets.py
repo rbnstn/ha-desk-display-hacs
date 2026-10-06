@@ -2,7 +2,7 @@
 import math
 from PIL import Image, ImageDraw, ImageFont
 
-KINDS=('progress','gauge','chip','chart','energy','slider','player')
+KINDS=('energy_day','price','ev_charge','calendar','progress','gauge','chip','chart','energy','slider','player')
 
 
 def number(value,default=None):
@@ -16,6 +16,9 @@ def validate_config(widget):
     config=widget.get('config',{})
     if not isinstance(config,dict):raise ValueError('Ungueltige Elementkonfiguration')
     kind=widget['kind']
+    if kind in ('energy_day','price','ev_charge','calendar'):
+        from .enhancements import validate_config
+        validate_config(widget);return
     if kind in ('cost','weather','countdown'):
         from .data_widgets import validate
         validate(widget);return
@@ -55,6 +58,9 @@ def validate_config(widget):
 
 
 def tile(widget,states,theme):
+    if widget['kind'] in ('energy_day','price','ev_charge','calendar'):
+        from .enhancements import tile
+        return tile(widget,states,theme)
     width,height=widget['width'],widget['height'];color=widget['color'];config=widget.get('config',{})
     image=Image.new('RGBA',(width,height));draw=ImageDraw.Draw(image)
     font=ImageFont.load_default(size=min(widget['size'],24));small=ImageFont.load_default(size=12)

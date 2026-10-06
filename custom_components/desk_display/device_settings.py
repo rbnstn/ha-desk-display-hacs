@@ -1,7 +1,7 @@
 """Validated brightness schedules and bounded ESP32 firmware files."""
 import re
 
-DEFAULT={'brightness':100,'night_enabled':False,'night_start':'22:00','night_end':'07:00','night_brightness':15,'ring_brightness':100,'sleep_after':0,'sleep_brightness':0}
+DEFAULT={'brightness':100,'night_enabled':False,'night_start':'22:00','night_end':'07:00','night_brightness':15,'ring_brightness':100,'sleep_after':0,'sleep_brightness':0,'notice_wake_priority':2}
 MARKER=b'desk_display:E32R35T:1'
 
 def validate_settings(value):
@@ -9,6 +9,7 @@ def validate_settings(value):
     result={**DEFAULT,**value}
     for key in ('brightness','night_brightness','ring_brightness','sleep_brightness'):
         if type(result[key]) is not int or not 0<=result[key]<=100:raise ValueError('Helligkeit: 0 bis 100 Prozent')
+    if type(result['notice_wake_priority']) is not int or not 0<=result['notice_wake_priority']<=4:raise ValueError('Aufweckpriorität: 0 bis 3; 4 deaktiviert')
     if type(result['sleep_after']) is not int or (result['sleep_after']!=0 and not 15<=result['sleep_after']<=3600):raise ValueError('Ruhemodus: 0 oder 15 bis 3600 Sekunden')
     if type(result['night_enabled']) is not bool:raise ValueError('Ungueltiger Nachtmodus')
     for key in ('night_start','night_end'):

@@ -1,0 +1,19 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Desk Display installieren / Install</title><style>body{font:18px system-ui;background:#14121a;color:#eee;max-width:760px;margin:auto;padding:40px}button,a{color:#adceff}button{background:#433363;padding:15px;border:0;border-radius:12px}select{padding:12px}small{display:block;margin:20px 0}</style><h1>Desk Display E32R35T</h1><p>USB-Installation und Wiederherstellung / USB installation and recovery</p><p>USB-Datenkabel anschließen. Chrome oder Edge auf einem Computer verwenden. Andere Displays werden nicht unterstützt.<br>Connect a USB data cable. Use Chrome or Edge on desktop. Other display models are unsupported.</p><label>Release <select id="releases"></select></label><p><esp-web-install-button id="install"><button slot="activate">Verbinden und installieren / Connect and install</button><span slot="unsupported">Dieser Browser unterstützt Web Serial nicht. / This browser does not support Web Serial.</span><span slot="not-allowed">HTTPS erforderlich / HTTPS required.</span></esp-web-install-button></p><p id="status">Releases werden geladen / Loading releases…</p><h2>Wiederherstellung / Recovery</h2><p>Bei einem fehlgeschlagenen Update ein vorheriges Release auswählen. Wenn nötig BOOT gedrückt halten, USB verbinden und BOOT nach dem Verbindungsaufbau loslassen. „Erase device“ löscht WLAN, Geräteschlüssel und Kalibrierung.<br>After a failed update, choose a previous release. If needed hold BOOT while connecting USB and release after connecting. Erasing removes Wi-Fi, device key and calibration.</p><p>Nach der Installation zeigt das Display den WLAN-Zugangspunkt und das Passwort. Dort WLAN und einen neuen Geräteschlüssel einrichten.<br>After installation, the display shows the Wi-Fi setup access point and password. Configure Wi-Fi and a new device key there.</p><a href="index.html">Demo / Demonstration</a><script type="module" src="https://unpkg.com/esp-web-tools@10.1.0/dist/web/install-button.js?module"></script><script type="module">
+let manifestUrl;
+try{
+ const response=await fetch('https://api.github.com/repos/rbnstn/ha-desk-display-hacs/releases?per_page=30');if(!response.ok)throw Error(response.status);
+ const releases=(await response.json()).filter(r=>!r.draft&&!r.prerelease&&r.assets.some(a=>a.name==='web-install-manifest.json'));
+ if(!releases.length)throw Error('Noch kein Browser-Installationspaket veröffentlicht / No web install package published');
+ for(const r of releases){const option=document.createElement('option');option.value=r.tag_name;option.textContent=r.tag_name;document.querySelector('select').append(option);}
+ async function select(){
+  const r=releases.find(r=>r.tag_name===document.querySelector('select').value);
+  const base=`https://rbnstn.github.io/ha-desk-display-hacs/firmware/${encodeURIComponent(r.tag_name)}/`;
+  // Release packages are copied by CI to the same HTTPS origin; no GitHub asset CORS dependence.
+  const response=await fetch(base+'web-install-manifest.json');if(!response.ok)throw Error('Installationspaket noch nicht bereit / Installer package not ready');
+  const manifest=await response.json();for(const build of manifest.builds)for(const part of build.parts)part.path=new URL(part.path,base).href;
+  if(manifestUrl)URL.revokeObjectURL(manifestUrl);manifestUrl=URL.createObjectURL(new Blob([JSON.stringify(manifest)],{type:'application/json'}));document.querySelector('#install').setAttribute('manifest',manifestUrl);
+  document.querySelector('#status').textContent=`Firmware ${manifest.version} · ${r.tag_name}`;
+ }
+ document.querySelector('select').onchange=()=>select().catch(e=>document.querySelector('#status').textContent=e.message);await select();
+}catch(error){document.querySelector('#status').textContent=error.message;}
+</script></html>

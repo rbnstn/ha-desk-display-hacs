@@ -72,19 +72,38 @@ def material_tile(widget, states, media, theme):
         start = inset if start is None else start
         end = right if end is None else end
         justify = align if justify is None else justify
-        font = ImageFont.load_default(size=size)
-        # Ellipsize within this widget, keeping adjacent elements untouched.
+        from .enhancements import font_for
+        font = font_for(size,style)
         available = max(0, end - start)
-        text = str(text)[:160]
-        if draw.textlength(text, font=font) > available:
-            while text and draw.textlength(text + "…", font=font) > available:
-                text = text[:-1]
-            text = text + "…" if text else ""
-        box = font.getbbox(text)
-        length = draw.textlength(text, font=font)
-        x = start if justify == "left" else end-length if justify == "right" else (start+end-length)/2
-        y = top + max(0, (bottom-top-(box[3]-box[1]))/2) - box[1]
-        draw.text((x, y), text, font=font, fill=fill)
+        lines=str(text)[:240].split('\n')[:6]
+        heights=[font.getbbox(line or 'Ag')[3]-font.getbbox(line or 'Ag')[1] for line in lines]
+        total=sum(heights)+max(0,len(lines)-1)*4
+        valign=style.get('valign','middle')
+        y=top if valign=='top' else bottom-total if valign=='bottom' else top+(bottom-top-total)/2
+        for line,line_height in zip(lines,heights):
+            if draw.textlength(line,font=font)>available:
+                while line and draw.textlength(line+'…',font=font)>available:line=line[:-1]
+                line=line+'…' if line else ''
+            length=draw.textlength(line,font=font)
+            x=start if justify=='left' else end-length if justify=='right' else (start+end-length)/2
+            draw.text((x,y-font.getbbox(line or 'Ag')[1]),line,font=font,fill=fill)
+            y+=line_height+4
+
+    def value_line(value,top,bottom,start=None,end=None):
+        start=inset if start is None else start;end=right if end is None else end
+        if 'unit_size' not in style:
+            text_line(value,widget['size'],top,bottom,color,start=start,end=end,justify=style.get('align','right'));return
+        parts=str(value).rsplit(' ',1)
+        if len(parts)!=2:
+            text_line(value,widget['size'],top,bottom,color,start=start,end=end,justify=style.get('align','right'));return
+        from .enhancements import font_for
+        value,unit=parts;main=font_for(widget['size'],style);small=font_for(style['unit_size'],style)
+        length=main.getlength(value)+6+small.getlength(unit);justify=style.get('align','right')
+        x=start if justify=='left' else end-length if justify=='right' else (start+end-length)/2
+        box=main.getbbox(value);total=box[3]-box[1];valign=style.get('valign','middle')
+        y=top if valign=='top' else bottom-total if valign=='bottom' else top+(bottom-top-total)/2
+        draw.text((x,y-box[1]),value,font=main,fill=color)
+        ubox=small.getbbox(unit);draw.text((x+main.getlength(value)+6,y+total-(ubox[3]-ubox[1])-ubox[1]),unit,font=small,fill=style.get('unit_color',color))
 
     if kind == "switch":
         track_width = min(44, width // 3)
@@ -102,14 +121,21 @@ def material_tile(widget, states, media, theme):
         value = sensor_value(widget,states)
         if label and height >= 62:
             text_line(label, min(14, widget["size"]), 6, 26, palette["muted"],justify=style.get('align','left'))
-            text_line(value, widget["size"], 26, height-6, color,justify=style.get('align','right'))
+            value_line(value,26,height-6)
         elif label:
             split = inset+(right-inset)*.45
             text_line(label,min(16,widget["size"]),0,height,color,end=split-4,justify=style.get('align','left'))
-            text_line(value,widget["size"],0,height,color,start=split+4,justify=style.get('align','right'))
+            value_line(value,0,height,start=split+4)
         else:
-            text_line(value,widget["size"],0,height,color,justify=style.get('align','right'))
+            value_line(value,0,height)
     else:
         feedback=states.get("__feedback__",{}).get(widget["entity_id"])
         text_line(feedback or label, min(widget["size"],16) if feedback else widget["size"], 0, height, "#ffd166" if feedback else color)
+    options=widget.get('availability',{})
+    age=states.get('__age__',{}).get(widget['entity_id'])
+    if age is not None and (options.get('show_age') or (options.get('stale_after',0) and age>=options['stale_after'])):
+        stale=bool(options.get('stale_after',0) and age>=options['stale_after'])
+        badge=('Veraltet · ' if stale else '')+f'{int(age)//60} min' if age>=60 else ('Veraltet · ' if stale else '')+f'{int(age)} s'
+        draw.rectangle((0,max(0,height-16),width-1,height-1),fill='#663c00' if stale else background)
+        draw.text((3,max(0,height-15)),badge,font=ImageFont.load_default(size=10),fill='#ffffff')
     return tile

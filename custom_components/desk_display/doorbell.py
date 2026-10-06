@@ -118,7 +118,11 @@ def current_layout(coordinator):
             header['text']='Oeffnungsbefehl ausgefuehrt'
     if not getattr(coordinator,'doorbell_active',False) and getattr(coordinator,'detail_widget',None):
         from .detail import detail_layout
-        layout['overlay']=detail_layout(coordinator.detail_widget,getattr(coordinator,'page_index',0),layout.get('theme','material_dark'))
+        if coordinator.detail_widget['kind']=='media':
+            import copy
+            camera=copy.deepcopy(coordinator.detail_widget);camera.update(x=0,y=0,width=480,height=276)
+            layout['overlay']={'background':'#000000','theme':layout.get('theme','material_dark'),'fullscreen':True,'widgets':[camera,dict(kind='navigation',text='Zurück',entity_id='',x=0,y=276,width=480,height=44,size=16,color='#ffffff',target=getattr(coordinator,'page_index',0))]}
+        else:layout['overlay']=detail_layout(coordinator.detail_widget,getattr(coordinator,'page_index',0),layout.get('theme','material_dark'))
     from .rules import entities, resolve_layout
     hass=getattr(coordinator,'hass',None)
     if hass and hasattr(hass,'states'):

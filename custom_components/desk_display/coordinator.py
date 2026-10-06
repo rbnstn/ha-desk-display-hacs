@@ -39,10 +39,14 @@ def action_available(state, domain):
 
 def snapshot_states(hass, layout):
     now=dt_util.now()
-    result = {'__now__':now.timestamp(),'__timezone__':hass.config.time_zone if hasattr(hass,'config') else 'UTC','__attributes__':{},'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
+    result = {'__now__':now.timestamp(),'__timezone__':hass.config.time_zone if hasattr(hass,'config') else 'UTC','__age__':{},'__attributes__':{},'__raw__':{}, '__clock__':{'time':now.strftime('%H:%M'), 'date':now.strftime('%d.%m.%Y'), 'datetime':now.strftime('%d.%m. %H:%M')}}
     for widget in layout["widgets"]+layout.get('overlay',{}).get('widgets',[]):
         for entity in entities(widget):
             raw=hass.states.get(entity)
+            if raw:
+                result['__attributes__'][entity]=dict(raw.attributes)
+                stamp=getattr(raw,'last_reported',getattr(raw,'last_updated',None))
+                if stamp:result['__age__'][entity]=max(0,now.timestamp()-stamp.timestamp())
             result['__raw__'][entity]=(raw.state,raw.attributes.get('unit_of_measurement','')) if raw else ('unavailable','')
         if widget["kind"] in ("text", "media", "image", "clock"):
             continue
@@ -126,9 +130,9 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         self.entry.async_on_unload(async_track_time_interval(self.hass,self._rotate_page,timedelta(seconds=1)))
         self.entry.async_on_unload(async_track_time_interval(self.hass,lambda _:self.hass.async_create_task(self.ring_history.expire()),timedelta(minutes=1)))
 
-    def notify(self,message,duration=15,priority=0):
+    def notify(self,message,duration=15,priority=0,action_entity_id=""):
         now=monotonic();self.notifications=[n for n in self.notifications if n[2]>now]
-        self.notifications.append((message,priority,now+duration));self.notifications.sort(key=lambda n:n[1],reverse=True);self.notifications=self.notifications[:5]
+        self.notifications.append((message,priority,now+duration,action_entity_id));self.notifications.sort(key=lambda n:n[1],reverse=True);self.notifications=self.notifications[:5]
         async_call_later(self.hass,duration,lambda _:self.hass.async_create_task(self.async_refresh()) if not self.touch_stopped else None)
 
     def show_page(self,index,duration=30):
@@ -151,7 +155,12 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             if self.doorbell_active:return
             if monotonic()<self.temporary_page[1]:return
             self.page_index=min(self.temporary_page[0],len(layout.get('pages',[])));self.temporary_page=None;self.page_deadline=0;self.hass.async_create_task(self.async_refresh())
-        if self.detail_widget:return
+        from .enhancements import scheduled_page
+        target=scheduled_page(layout.get('page_schedule',[]),dt_util.now())
+        if target is not None and not self.doorbell_active and not self.detail_widget and not getattr(self,'condition_page',None):
+            if self.page_index!=target:self.page_index=target;self.hass.async_create_task(self.async_refresh())
+            return
+        if self.detail_widget or getattr(self,'condition_page',None):return
         if not seconds or not layout.get('pages') or self.doorbell_active:
             self.page_deadline=0;return
         if not self.page_deadline:self.page_deadline=monotonic()+seconds
@@ -228,15 +237,31 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
                         touched=widget_at(self.last_layout,event['x'],event['y'])
                         if gesture in ('left','right') and touched and touched['kind']=='slider':gesture='tap'
                         action = action_at(self.last_layout, event["x"], event["y"],gesture)
+                        if gesture=='tap' and touched and touched['kind']=='media' and 'overlay' not in self.last_layout:action=('desk_display','camera','')
                     if (self.data or {}).get('debug_overlay') and self.last_layout.get('debug') and (
                         event['x'] >= 256 and event['y'] >= 300
                     ):
                         action = None
-                if event["y"]<32 and any(n[2]>monotonic() for n in self.notifications) and not self.doorbell_active:action=None
+                if event['id']!=self.last_touch_id and event['revision']==self.revision and self.last_layout==current_layout(self) and event['y']<32 and any(n[2]>monotonic() for n in self.notifications) and not self.doorbell_active:action=('desk_display','notice',str(event['x']))
                 await self.client.acknowledge_touch(event["id"])
                 self.last_touch_id = event["id"]
             if action is not None and not self.touch_stopped:
                 domain, service, entity_id = action
+                if domain=='desk_display' and service=='notice':
+                    active=next((n for n in self.notifications if n[2]>monotonic()),None)
+                    if active:
+                        self.notifications.remove(active)
+                        if int(entity_id)<440 and len(active)>3 and active[3]:
+                            from .actions import BUTTON_SERVICES
+                            action_entity=active[3];action_domain=action_entity.split('.')[0]
+                            state=self.hass.states.get(action_entity)
+                            if action_domain in ('button','input_button','script') and action_available(state,action_domain):
+                                await self.hass.services.async_call(action_domain,BUTTON_SERVICES[action_domain],{'entity_id':action_entity},blocking=True)
+                    await self.async_refresh();return
+                if domain=='desk_display' and service=='camera':
+                    import copy
+                    self.detail_widget=copy.deepcopy(widget_at(self.last_layout,event['x'],event['y']));self.detail_deadline=monotonic()+30
+                    await self.async_refresh();return
                 if domain=='desk_display' and service=='detail':
                     import copy
                     self.detail_widget=copy.deepcopy(widget_at(self.last_layout,event['x'],event['y']));self.detail_deadline=monotonic()+30
@@ -341,7 +366,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             from .automation import NotificationRules
             self.notification_rules=NotificationRules()
         for rule in self.notification_rules.evaluate(rules,states):
-            self.notify(rule['message'],rule['duration'],rule['priority'])
+            self.notify(rule['message'],rule['duration'],rule['priority'],rule.get('action_entity_id',''))
             self.hass.async_create_task(self.async_request_refresh())
 
     def _evaluate_page_rules(self,prime=False):
@@ -349,16 +374,25 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         rules=get_layout(self.entry.options).get('page_rules',[])
         raw={'__raw__':{r['when']['entity_id']:(self.hass.states.get(r['when']['entity_id']).state if self.hass.states.get(r['when']['entity_id']) else 'unavailable','') for r in rules}}
         keys=set()
-        winner=None
+        winner=None;held=None
         for index,rule in enumerate(rules):
             key=(index,condition_key(rule['when']));keys.add(key)
             active=self.page_rule_engine.evaluate(rule['when'],raw,prime=prime or key not in self.page_rule_active)
             before=self.page_rule_active.get(key,active)
             self.page_rule_active[key]=active
-            if not prime and active and not before and winner is None:winner=rule
+            if rule.get('mode')=='while':
+                if active and held is None:held=rule['page']
+            elif not prime and active and not before and winner is None:winner=rule
         self.page_rule_active={k:v for k,v in self.page_rule_active.items() if k in keys}
         allowed={condition_key(r['when']) for r in rules}
         self.page_rule_engine.memory={k:v for k,v in self.page_rule_engine.memory.items() if k in allowed}
+        if not self.doorbell_active and not self.detail_widget and not self.temporary_page:
+            previous=getattr(self,'condition_page',None)
+            if held is not None:
+                self.condition_page=(previous[0] if previous else self.page_index,held)
+                if self.page_index!=held:self.page_index=held;self.hass.async_create_task(self.async_refresh())
+            elif previous:
+                self.page_index=min(previous[0],len(get_layout(self.entry.options).get('pages',[])));self.condition_page=None;self.hass.async_create_task(self.async_refresh())
         if winner and not self.touch_stopped:
             self.show_page(winner['page'],winner['duration'])
             self.hass.async_create_task(self.async_refresh())
@@ -368,6 +402,7 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
         for widget in layout['widgets']+layout.get('overlay',{}).get('widgets',[]):
             if 'visible_when' in widget:conditions.append(widget['visible_when'])
             conditions.extend(r['when'] for r in widget.get('rules',[]))
+            conditions.extend(r['when'] for r in widget.get('icon_states',[]))
         return self.rule_engine.snapshot(conditions,states)
 
     async def _async_update_data(self):
@@ -414,9 +449,10 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             if info.get('sleep_control'):
                 from .device_settings import validate_settings
                 settings=validate_settings(get_layout(self.entry.options).get('device',{}))
+                wake=self.doorbell_active or any(n[2]>monotonic() and n[1]>=settings['notice_wake_priority'] for n in getattr(self,'notifications',[]))
                 sleep=(settings['sleep_after'],settings['sleep_brightness'])
-                if sleep!=getattr(self,'last_sleep_config',None) or info.get('boot_id')!=getattr(self,'last_sleep_boot',None) or self.doorbell_active:
-                    await self.client.configure_sleep(*sleep,wake=self.doorbell_active)
+                if sleep!=getattr(self,'last_sleep_config',None) or info.get('boot_id')!=getattr(self,'last_sleep_boot',None) or wake:
+                    await self.client.configure_sleep(*sleep,wake=wake)
                     self.last_sleep_config=sleep;self.last_sleep_boot=info.get('boot_id')
             if info.get('brightness_control'):
                 from .device_settings import brightness
@@ -441,6 +477,8 @@ class DeskDisplayCoordinator(DataUpdateCoordinator):
             states["__feedback__"]={entity:value[0] for entity,value in getattr(self,"action_feedback",{}).items() if monotonic()<value[1]}
             from .history import augment_states
             await augment_states(self.hass,layout,states)
+            from .calendar_data import augment_calendar
+            await augment_calendar(self.hass,layout,states)
             jpeg_video = info.get('jpeg_regions') and video_widget(layout) is not None
             render_started=monotonic()
             frame = await self.hass.async_add_executor_job(render_frame, layout, states,
