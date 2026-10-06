@@ -410,7 +410,7 @@ Bildbereiche, Ruhemodus sowie echte Chromium Tests.
 HACS aktualisieren, HA neu starten und den Designer neu laden. Bestehende Layouts
 bleiben nutzbar. Neue Gerätefunktionen benötigen **Firmware 0.9.0**. Geräte mit
 Firmware 0.6.0 oder neuer können diese über den Designer installieren; ältere
-Geräte benötigen USB. Die Firmware muss weiterhin separat gebaut werden.
+Geräte benötigen USB. Die Firmware wird automatisch ohne Zugangsdaten gebaut und als .bin am HACS Release bereitgestellt.
 
 Ab Firmware 0.9.0 ist eine eigene secrets.h optional. Ohne WLAN Daten startet ein
 passwortgeschütztes Einrichtungs-WLAN; Name und Passwort stehen auf dem Display.
@@ -430,3 +430,18 @@ laufende Gerätetimer zu verändern.
 Neue Firmwarefunktionen sind automatisiert prüfbar; WLAN, Aufwachen, mDNS und
 OTA müssen zusätzlich am physischen E32R35T in der eigenen Installation geprüft
 werden. Alte Firmware erhält weiterhin die bisher unterstützten Funktionen.
+
+
+## Automatische Firmware Downloads
+
+Jeder veröffentlichte HACS Release baut die mitgelieferten Firmwarequellen ohne secrets.h.
+Die fertige `desk-display-e32r35t-VERSION.bin` steht unter **Assets** des passenden Releases,
+zusammen mit SHA256 Prüfsumme und Buildinformationen. Diese .bin im Designer unter Firmwareupdate
+hochladen. HACS aktualisiert ausschließlich die Integration und flasht das Gerät nicht.
+
+Änderungen auf main bauen ebenfalls automatisch. Solange die passende HACS Version noch
+nicht veröffentlicht ist, steht das Paket als Actions Artefakt `desk-display-firmware` bereit.
+Nach Veröffentlichung des Releases wird die Datei automatisch angehängt. Vorhandene Dateien
+werden nicht ersetzt; geänderte Firmware benötigt eine neue Firmwareversionsnummer.
+WLAN Daten und Geräteschlüssel werden erst am Display eingerichtet. Lokale secrets.h und
+Buildordner werden nicht ins öffentliche Repository exportiert.

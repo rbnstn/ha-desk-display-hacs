@@ -1,0 +1,4 @@
+firmware/.pio/
+firmware/include/secrets.h
+**/__pycache__/
+dist/
