@@ -101,16 +101,15 @@ def material_tile(widget, states, media, theme):
     if kind == "sensor":
         value = sensor_value(widget,states)
         if label and height >= 62:
-            text_line(label, min(14, widget["size"]), 6, 26, palette["muted"],justify='left')
-            text_line(value, widget["size"], 26, height-6, color,justify='right')
+            text_line(label, min(14, widget["size"]), 6, 26, palette["muted"],justify=style.get('align','left'))
+            text_line(value, widget["size"], 26, height-6, color,justify=style.get('align','right'))
         elif label:
             split = inset+(right-inset)*.45
-            text_line(label,min(16,widget["size"]),0,height,color,end=split-4,justify='left')
-            text_line(value,widget["size"],0,height,color,start=split+4,justify='right')
+            text_line(label,min(16,widget["size"]),0,height,color,end=split-4,justify=style.get('align','left'))
+            text_line(value,widget["size"],0,height,color,start=split+4,justify=style.get('align','right'))
         else:
-            text_line(value,widget["size"],0,height,color,justify='right')
+            text_line(value,widget["size"],0,height,color,justify=style.get('align','right'))
     else:
         feedback=states.get("__feedback__",{}).get(widget["entity_id"])
         text_line(feedback or label, min(widget["size"],16) if feedback else widget["size"], 0, height, "#ffd166" if feedback else color)
     return tile
-

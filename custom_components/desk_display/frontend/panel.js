@@ -211,12 +211,16 @@ export class DeskDisplayPanel extends HTMLElement {
     }
   }
   async fitText() {
-    const result=await this._hass.callWS({type:'desk_display/inspect',layout:this.documentLayout()});
-    const item=result.sizes.find(i=>i.page===(this.pageIndex??0) && i.index===this.widgetIndex);
-    if(!item){this.status('Für dieses Element ist keine automatische Schriftanpassung verfügbar.');return;}
-    const widget=this.layout.widgets[this.widgetIndex];widget.size=item.size;
-    if(this.documentLayout().design?.size!==undefined)widget.inherit_design=false;
-    this.draw();this.schedulePreview();
+    const widget=this.layout.widgets[this.widgetIndex],page=this.pageIndex??0,index=this.widgetIndex;
+    try {
+      const result=await this._hass.callWS({type:'desk_display/inspect',layout:this.documentLayout()});
+      if(this.layout.widgets[this.widgetIndex]!==widget || (this.pageIndex??0)!==page)return;
+      const item=result.sizes.find(i=>i.page===page && i.index===index);
+      if(!item){this.status('Für dieses Element ist keine automatische Schriftanpassung verfügbar.');return;}
+      widget.size=item.size;widget.inherit_design=false;
+      this.draw();this.schedulePreview();
+      this.status(item.fits===false?'Die kleinste Schriftgröße ist erreicht. Bitte das Element vergrößern.':`Schrift angepasst: ${item.size} px.`);
+    } catch(error) {this.status(`Schrift konnte nicht angepasst werden: ${error.message??error}`);}
   }
   chooseTemplate(type) {
     const definitions={energy:[['solar','PV Leistung',['sensor']],['house','Hausverbrauch',['sensor']],['grid','Netzleistung',['sensor']],['battery','Batterieleistung',['sensor']],['battery_soc','Batteriestand (optional, %)',['sensor']],['wallbox','Wallbox Leistung (optional)',['sensor']]],status:[['one','Erster Schalter',['switch','input_boolean']],['two','Zweiter Schalter (optional)',['switch','input_boolean']],['three','Dritter Schalter (optional)',['switch','input_boolean']]],camera:[['source','Kamera',['camera']]]};
@@ -1255,13 +1259,16 @@ export class DeskDisplayPanel extends HTMLElement {
         this.field(settings,'Kartenfarbe',style.background ?? (widget.kind==='button'?'#6750a4':this.layout.theme==='material_light'?'#f3edf7':'#211f26'),
           value=>style.background=value,{type:'color'});
         this.field(settings,'Eckenradius',style.radius ?? 16,value=>style.radius=Number(value),{type:'number',min:0,max:32,step:1});
+      }
+      if (['text','sensor','button','switch','clock'].includes(widget.kind)) {
+        const style=widget.style??={};
         const align=this.element('select',{'aria-label':'Textausrichtung'});
         for (const [value,label] of [['left','Linksbündig'],['center','Zentriert'],['right','Rechtsbündig']]) align.append(this.element('option',{value},label));
-        align.value=style.align ?? (widget.kind==='button'?'center':'left');
+        align.value=style.align ?? (widget.kind==='button'?'center':widget.kind==='sensor'?'right':'left');
         align.onchange=()=>{style.align=align.value;this.schedulePreview();};
-        if (!['media','image','sensor','icon','line'].includes(widget.kind)) settings.append(align);
+        const label=this.element('label',{},'Textausrichtung');label.append(align);settings.append(label);
+        const fit=this.element('button',{class:'secondary'},'Schrift passend verkleinern');fit.onclick=()=>this.fitText();settings.append(fit);
       }
-      const fit=this.element('button',{class:'secondary'},'Schrift passend verkleinern');fit.onclick=()=>this.fitText();settings.append(fit);
       this.wrapFields(settings,appearanceStart,'appearance','Aussehen');
     }
     widgetPanel.append(...Array.from(settings.childNodes).filter(node=>node!==displayPanel));
@@ -1413,4 +1420,3 @@ export class DeskDisplayPanel extends HTMLElement {
   }
 }
 if (!customElements.get('desk-display-panel')) customElements.define('desk-display-panel',DeskDisplayPanel);
-

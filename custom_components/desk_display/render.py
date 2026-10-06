@@ -59,7 +59,11 @@ def render_image(layout, states, media=None):
             draw.rounded_rectangle((0, 0, widget["width"]-1, widget["height"]-1),
                                    radius=min(10, widget["height"]//3), fill=background)
             inset = 8
-        draw.text((inset, inset), text[:160], font=ImageFont.load_default(size=widget["size"]),
+        font = ImageFont.load_default(size=widget['size'])
+        length = draw.textlength(text[:160], font=font)
+        align = widget.get('style', {}).get('align', 'left')
+        x = inset if align == 'left' else widget['width']-inset-length if align == 'right' else (widget['width']-length)/2
+        draw.text((x, inset), text[:160], font=font,
                   fill=widget["color"], anchor="lt")
         image.paste(tile, (widget["x"], widget["y"]), tile)
     for widget in layout['widgets']:
@@ -113,4 +117,3 @@ def render_jpeg(layout, states, media, box=None):
         if len(result) <= 65536:
             return result
     raise ValueError('JPEG exceeds display buffer')
-
