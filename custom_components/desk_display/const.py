@@ -15,3 +15,4 @@ DEFAULT_LAYOUT = {
          "color": "#57d9b0"},
     ],
 }
+

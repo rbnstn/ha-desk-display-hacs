@@ -4,13 +4,26 @@
     "step": {
       "user": {
         "title": "Connect your E32R35T",
-        "description": "Install the Desk Display firmware first. Enter the IP shown on the display and the device key from secrets.h.",
-        "data": {"host": "Display IP address or hostname", "key": "Device key"}
+        "description": "Install the Desk Display firmware first. Enter the IP shown on the display and the device key from the Wi-Fi setup or secrets.h.",
+        "data": {
+          "host": "Display IP address or hostname",
+          "key": "Device key"
+        }
       },
       "reconfigure": {
         "title": "Update connection",
         "description": "Enter the current address and key for the same display.",
-        "data": {"host": "Display IP address or hostname", "key": "Device key"}
+        "data": {
+          "host": "Display IP address or hostname",
+          "key": "Device key"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Desk Display discovered",
+        "description": "Display found at {host}. Enter the device key from Wi-Fi setup.",
+        "data": {
+          "key": "Device key"
+        }
       }
     },
     "error": {
@@ -20,7 +33,8 @@
     },
     "abort": {
       "already_configured": "This display is already configured.",
-      "reconfigure_successful": "Connection updated."
+      "reconfigure_successful": "Connection updated.",
+      "invalid_device": "Incompatible display"
     }
   }
 }

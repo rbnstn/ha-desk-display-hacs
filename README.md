@@ -1,7 +1,7 @@
 # Desk Display für Home Assistant
 
 HACS-Integration für ein E32R35T-Display mit der Desk-Display-Firmware.
-Version **0.9.0**, Home Assistant **2026.9 oder neuer**.
+Version **0.28.0**, Home Assistant **2026.9 oder neuer**.
 
 ## Installation über HACS
 
@@ -395,3 +395,38 @@ Optionale HA-Wert-Detailansicht mit Recorder-Verlauf, automatischer Rückkehr un
 ## Version 0.27.0: Optionaler Klingelverlauf und Aufbewahrung
 
 Opt-in-Verlauf echter Klingelereignisse mit maximal 20 Einträgen, 1–30 Tagen Aufbewahrung, optionalen frischen Vorschaubildern und eigenem Anzeigeelement. Speicherung lokal in HA; Verlauf und Bilder können im Designer eingesehen und gelöscht werden. Enthält alle zwölf Verbesserungen aus 0.23–0.27.
+
+
+
+## Version 0.28.0: Einrichtung, Bedienung und Zuverlässigkeit
+
+Alle 15 Verbesserungen: begrenzte und pausierbare Vorschau, getrennte Diagramm-
+und Wetterdaten, WLAN Einrichtung am Gerät, begrenzter WLAN Verbindungsversuch,
+automatische HA Erkennung, Firmwareprüfung nach Neustart, Hinweise zur passenden
+Firmware, erweiterte Diagnose, geführte Vorlagen, einfache und erweiterte Ansicht,
+echte Schriftmessung, Hysterese und Verzögerung für Regeln, mehrere kleine
+Bildbereiche, Ruhemodus sowie echte Chromium Tests.
+
+HACS aktualisieren, HA neu starten und den Designer neu laden. Bestehende Layouts
+bleiben nutzbar. Neue Gerätefunktionen benötigen **Firmware 0.9.0**. Geräte mit
+Firmware 0.6.0 oder neuer können diese über den Designer installieren; ältere
+Geräte benötigen USB. Die Firmware muss weiterhin separat gebaut werden.
+
+Ab Firmware 0.9.0 ist eine eigene secrets.h optional. Ohne WLAN Daten startet ein
+passwortgeschütztes Einrichtungs-WLAN; Name und Passwort stehen auf dem Display.
+Damit verbinden, http://192.168.4.1 öffnen, WLAN Daten und Geräteschlüssel speichern.
+Den Schlüssel für die anschließende HA Einrichtung kopieren. Eine vorhandene
+secrets.h bleibt nutzbar. Bereits am Gerät gespeicherte WLAN Daten haben Vorrang.
+BOOT am laufenden Gerät mindestens acht Sekunden halten und loslassen, um WLAN
+neu einzurichten; drei bis unter acht Sekunden startet die Touchkalibrierung.
+
+Der Ruhemodus dimmt nach 15–3600 Sekunden ohne Berührung, 0 deaktiviert ihn.
+Die erste Berührung weckt ausschließlich auf; Klingeln weckt sofort auf.
+Zeitpläne und Ruhemodus werden von HA nach einem Neustart wieder eingerichtet.
+Hysterese verwendet die Einheit des ursprünglichen HA Werts. Verzögerung gilt
+für beide Zustandswechsel. Simulation zeigt den unmittelbaren Zustand, ohne
+laufende Gerätetimer zu verändern.
+
+Neue Firmwarefunktionen sind automatisiert prüfbar; WLAN, Aufwachen, mDNS und
+OTA müssen zusätzlich am physischen E32R35T in der eigenen Installation geprüft
+werden. Alte Firmware erhält weiterhin die bisher unterstützten Funktionen.

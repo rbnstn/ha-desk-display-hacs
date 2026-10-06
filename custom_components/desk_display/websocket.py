@@ -14,7 +14,7 @@ from .doorbell import get_doorbell, validate_doorbell, overlay_layout
 
 @callback
 def register_commands(hass):
-    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics, ringing_history):
+    for handler in (list_displays, preview, save, media_browse, doorbell_test, doorbell_status, diagnostics, ringing_history, inspect):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -180,7 +180,12 @@ def diagnostics(hass,connection,msg):
     data=coordinator.data or {}
     connection.send_result(msg['id'],{'connected':coordinator.last_update_success,'firmware':data.get('version','unbekannt'),
         'brightness_control':bool(data.get('brightness_control')),'ota_update':bool(data.get('ota_update')),
-        'age':round(__import__('time').monotonic()-coordinator.last_confirmed_at) if coordinator.last_confirmed_at else None})
+        'age':round(__import__('time').monotonic()-coordinator.last_confirmed_at) if coordinator.last_confirmed_at else None,
+        **{key:data.get(key) for key in ('rssi','free_heap','min_free_heap','uptime','reset_reason','boot_id','sleeping')},
+        'render_ms':getattr(coordinator,'last_render_ms',None),'transfer_ms':getattr(coordinator,'last_transfer_ms',None),
+        'transfer_bytes':getattr(coordinator,'last_transfer_bytes',0),
+        'camera_age':getattr(getattr(coordinator,'media',None),'readiness',lambda:{})().get('age'),
+        'update':getattr(coordinator,'firmware_status',None)})
 
 
 @websocket_api.websocket_command({'type':'desk_display/ringing_history',vol.Required('entry_id'):str,vol.Optional('clear',default=False):bool})
@@ -192,3 +197,19 @@ async def ringing_history(hass,connection,msg):
         connection.send_error(msg['id'],'not_found','Display nicht gefunden');return
     if msg.get('clear'):await coordinator.ring_history.clear();await coordinator.async_refresh()
     connection.send_result(msg['id'],{'records':coordinator.ring_history.snapshot(hass.config.time_zone)})
+
+
+
+@websocket_api.websocket_command({'type':'desk_display/inspect',vol.Required('layout'):dict})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def inspect(hass,connection,msg):
+    try:
+        layout=validate_layout(msg['layout'])
+        from .inspection import inspect_text
+        from .pages import page_layout
+        states=[snapshot_states(hass,page_layout(layout,i)) for i in range(1+len(layout.get('pages',[])))]
+        result=await hass.async_add_executor_job(inspect_text,layout,states)
+    except ValueError as error:
+        connection.send_error(msg['id'],'invalid_layout',str(error));return
+    connection.send_result(msg['id'],result)

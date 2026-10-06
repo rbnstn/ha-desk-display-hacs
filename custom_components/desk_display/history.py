@@ -43,7 +43,8 @@ async def augment_states(hass,layout,states):
                 except Exception:pass
             entry=(monotonic(),points,start.timestamp(),now.timestamp());cache[key]=entry
             if len(cache)>40:cache.pop(next(iter(cache)))
-        states['__history__'][entity]=(entry[1],entry[2],entry[3])
+        states['__history__'][key]=(entry[1],entry[2],entry[3])
+        states['__history__'].setdefault(entity,states['__history__'][key])
     cover_cache=hass.data.setdefault('desk_display_covers',{})
     for widget in layout['widgets']:
         if widget['kind']!='player':continue
@@ -70,3 +71,4 @@ async def augment_states(hass,layout,states):
             if len(cover_cache)>40:cover_cache.pop(next(iter(cover_cache)))
         if entry[2]:states['__covers__'][entity]=entry[2]
     return states
+

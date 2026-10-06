@@ -121,13 +121,16 @@ def current_layout(coordinator):
         layout['overlay']=detail_layout(coordinator.detail_widget,getattr(coordinator,'page_index',0),layout.get('theme','material_dark'))
     from .rules import entities, resolve_layout
     hass=getattr(coordinator,'hass',None)
-    if hass:
+    if hass and hasattr(hass,'states'):
         raw={entity:(state.state,'') if (state:=hass.states.get(entity)) else ('unavailable','')
-             for w in layout['widgets'] for entity in entities(w)}
-        layout=resolve_layout(layout,{'__raw__':raw})
+             for w in layout['widgets']+layout.get('overlay',{}).get('widgets',[]) for entity in entities(w)}
+        states={'__raw__':raw}
+        if hasattr(coordinator,'resolve_conditions'):coordinator.resolve_conditions(layout,states)
+        layout=resolve_layout(layout,states)
     return layout
 
 
 def video_widget(layout):
     page=layout.get('overlay',layout)
     return next((w for w in page['widgets'] if w['kind']=='media'),None)
+

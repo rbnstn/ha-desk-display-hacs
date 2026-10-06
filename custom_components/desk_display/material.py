@@ -113,3 +113,4 @@ def material_tile(widget, states, media, theme):
         feedback=states.get("__feedback__",{}).get(widget["entity_id"])
         text_line(feedback or label, min(widget["size"],16) if feedback else widget["size"], 0, height, "#ffd166" if feedback else color)
     return tile
+

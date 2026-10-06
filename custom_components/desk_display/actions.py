@@ -68,3 +68,4 @@ def command_data(widget,x,attributes,service):
             if not all(__import__('math').isfinite(v) for v in (minimum,maximum,step)) or maximum<=minimum or step<=0:raise ValueError('Invalid numeric entity range')
             data['value']=max(minimum,min(maximum,minimum+round(fraction*(maximum-minimum)/step)*step))
     return data
+

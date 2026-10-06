@@ -99,3 +99,4 @@ class VideoDecoder:
         if self.error_task:
             with suppress(asyncio.CancelledError):
                 await self.error_task
+

@@ -232,3 +232,4 @@ def validate_layout(layout, nested=False):
 
 def get_layout(options):
     return validate_layout(copy.deepcopy(options.get("layout", DEFAULT_LAYOUT)))
+

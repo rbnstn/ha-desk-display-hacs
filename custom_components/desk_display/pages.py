@@ -17,3 +17,4 @@ def page_layout(layout,index=0):
 
 def all_widgets(layout):
     return layout['widgets']+[w for p in layout.get('pages',[]) for w in p['widgets']]+layout.get('overlay',{}).get('widgets',[])
+

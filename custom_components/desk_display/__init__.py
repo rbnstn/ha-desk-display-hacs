@@ -25,7 +25,7 @@ async def async_setup(hass, config):
     await panel_custom.async_register_panel(
         hass, frontend_url_path="desk-display", webcomponent_name="desk-display-panel",
         sidebar_title="Desk Display", sidebar_icon="mdi:monitor-dashboard",
-        module_url="/desk-display/panel.js?v=0.27.0", require_admin=True,
+        module_url="/desk-display/panel.js?v=0.28.0", require_admin=True,
     )
     return True
 
@@ -47,3 +47,4 @@ async def async_unload_entry(hass, entry):
         hass.data[DOMAIN].pop(entry.entry_id, None)
         return True
     return False
+

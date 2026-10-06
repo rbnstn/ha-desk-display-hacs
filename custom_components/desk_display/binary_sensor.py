@@ -26,3 +26,4 @@ class ConnectionSensor(DeskDisplayEntity, BinarySensorEntity):
     @property
     def is_on(self):
         return self.coordinator.last_update_success
+

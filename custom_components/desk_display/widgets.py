@@ -84,7 +84,7 @@ def tile(widget,states,theme):
         if feedback:draw.text((6,max(0,height-30)),feedback,font=small,fill='#ffd166')
         return image
     if kind=='chart':
-        points,start,end=states.get('__history__',{}).get(widget['entity_id'],([],0,1))
+        points,start,end=states.get('__history__',{}).get((widget['entity_id'],config.get('minutes',60)),states.get('__history__',{}).get(widget['entity_id'],([],0,1)))
         factor=float(config.get('factor',1));values=[v*factor for _,v in points if v is not None]
         draw.text((4,2),widget['text'][:32],font=small,fill=color)
         if not values:
@@ -147,3 +147,4 @@ def tile(widget,states,theme):
         length=draw.textlength(label,font=font);draw.text(((width-length)/2,(height-18)/2),label,font=font,fill=color)
         draw.text((4,max(0,height-15)),widget['text'][:24],font=small,fill=muted)
     return image
+

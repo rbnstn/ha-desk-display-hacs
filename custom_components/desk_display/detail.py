@@ -8,3 +8,4 @@ def detail_layout(widget,page,theme='material_dark'):
     if 'unit' in widget.get('value',{}):chart['config']['unit']=widget['value']['unit']
     close=dict(kind='navigation',text='Schließen',entity_id='',target=page,x=368,y=8,width=104,height=32,size=16,color=color,style={'surface':True,'background':'#6750a4','radius':8})
     return {'background':'#fef7ff' if light else '#141218','theme':theme,'fullscreen':True,'widgets':[sensor,chart,close]}
+

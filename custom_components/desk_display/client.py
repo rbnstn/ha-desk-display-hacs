@@ -107,3 +107,10 @@ class DisplayClient:
                 if response.status != 200:
                     raise ValueError("Region not confirmed")
                 await response.read()
+
+
+    async def configure_sleep(self,seconds,brightness,wake=False):
+        async with self.session.post(f'{self.base}/api/sleep',params={'after':seconds,'brightness':brightness,'wake':'1' if wake else '0'},headers=self.headers,timeout=aiohttp.ClientTimeout(total=5),allow_redirects=False) as response:
+            response.raise_for_status()
+            if response.status!=200:raise ValueError('Ruhemodus nicht bestätigt')
+            await response.read()

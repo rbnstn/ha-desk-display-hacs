@@ -13,3 +13,4 @@ def camera_tile(content, width, height):
     tile=Image.new('RGB',(width,height),'black')
     tile.paste(fitted,((width-fitted.width)//2,(height-fitted.height)//2))
     return tile.tobytes()
+

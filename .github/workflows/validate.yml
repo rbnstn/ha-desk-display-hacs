@@ -13,3 +13,4 @@ jobs:
           # A license choice is required before submitting to the default catalog.
           # This repository is distributed as a custom repository for now.
           ignore: license
+
